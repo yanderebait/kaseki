@@ -1,0 +1,43 @@
+/* Frosted glass background (Part 3, background option 2). A soft, lightly
+   tinted gradient sits behind the UI and elevated surfaces become translucent,
+   so cards read as glass floating over it; the largest surfaces add a backdrop
+   blur. Keyed on data-bg='frosted' — set on the document root in normal use, or
+   on the onboarding preview container to scope the look to that subtree. The
+   tint borrows the active --accent so background and accent preview together.
+   The flat default needs no rules; it is the plain --bg-primary surface. */
+
+[data-bg='frosted'] {
+  --bg-secondary: rgba(26, 26, 28, 0.6);
+  --bg-tertiary: rgba(38, 38, 42, 0.66);
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(140% 90% at 12% -10%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 55%),
+    radial-gradient(130% 100% at 110% 110%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%);
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+[data-bg='frosted'][data-theme='light'] {
+  --bg-secondary: rgba(255, 255, 255, 0.62);
+  --bg-tertiary: rgba(229, 229, 231, 0.72);
+}
+
+/* At the document root the body paints --bg-primary on top, which would hide
+   the gradient; make it transparent so the root background shows through. The
+   preview container has no body inside it, so this only affects the real app. */
+[data-bg='frosted'] body {
+  background: transparent;
+}
+
+/* Backdrop blur on the most prominent card surfaces. Translucency carries the
+   frosted look on smaller surfaces without enumerating all of them. */
+[data-bg='frosted'] .profession-card,
+[data-bg='frosted'] .add-page,
+[data-bg='frosted'] .modal,
+[data-bg='frosted'] .settings,
+[data-bg='frosted'] .orb-menu,
+[data-bg='frosted'] .dashboard-config section,
+[data-bg='frosted'] .dashboard-cal {
+  backdrop-filter: blur(16px) saturate(1.1);
+  -webkit-backdrop-filter: blur(16px) saturate(1.1);
+}

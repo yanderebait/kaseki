@@ -1,0 +1,286 @@
+/* The first-run onboarding flow (Part 13). A full-screen, centered, friendly
+   sequence. Appearance choices are applied live by the provider, so frosted
+   backgrounds and font scaling are visible here as they are set. */
+
+.onboard {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  padding: var(--space-5);
+  background: var(--bg-primary);
+}
+
+/* When frosted, let the .onboard gradient (set on the document root) show. */
+[data-bg='frosted'] .onboard {
+  background: transparent;
+}
+
+.onboard-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: center;
+}
+
+.onboard-narrow {
+  max-width: 420px;
+}
+
+.onboard-wide {
+  max-width: 760px;
+}
+
+.onboard-centered {
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.onboard-logo {
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.onboard-title {
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.onboard-sub {
+  font-size: var(--text-body);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 52ch;
+}
+
+.onboard-hint {
+  max-width: 52ch;
+}
+
+/* Welcome (screen 1) form */
+.onboard-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  align-items: stretch;
+  text-align: left;
+}
+
+.onboard-card .onboard-title {
+  text-align: center;
+}
+
+.onboard-card input,
+.onboard-search {
+  width: 100%;
+}
+
+/* Profession search (screen 2) */
+.onboard-search {
+  font-size: var(--text-header);
+  padding: var(--gap-5) var(--pad-card-medium);
+}
+
+.onboard-results {
+  width: 100%;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+/* Customization (screen 3) */
+.onboard-customize {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  width: 100%;
+  text-align: left;
+  margin-top: var(--space-2);
+}
+
+.onboard-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.onboard-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-3);
+}
+
+.onboard-control-label {
+  font-size: var(--text-hint);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+}
+
+/* Live preview panel — carries its own data-theme/data-bg/--accent so it is a
+   self-contained mock of the home screen. */
+.onboard-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background-color: var(--bg-primary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  min-height: 240px;
+}
+
+.onboard-preview-greeting {
+  font-size: var(--text-card-name);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.onboard-preview-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: var(--pad-card-medium);
+  padding-left: var(--space-3);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.onboard-preview-strip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--card-accent);
+}
+
+.onboard-preview-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.onboard-preview-card-name {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.onboard-preview-card-sub {
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.onboard-preview-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--pad-card-medium);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.onboard-preview-widget-title {
+  font-size: var(--text-body);
+  color: var(--text-primary);
+}
+
+.onboard-preview-widget-sub {
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+/* Launcher (screen 4) */
+.onboard-launcher {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: left;
+  margin-top: var(--space-2);
+}
+
+/* Actions row shared by the screens */
+.onboard-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--gap-5);
+  width: 100%;
+  margin-top: var(--space-3);
+}
+
+.onboard-actions .primary {
+  min-width: 140px;
+}
+
+.onboard-actions-stack {
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 280px;
+  margin-inline: auto;
+}
+
+/* The non-interactive Orb face (OrbMark) */
+.orb-mark {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #d4d4d8);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.onboard-orb-corner {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+}
+
+.onboard-orb-large {
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--space-2);
+}
+
+/* The guided tour (Part 13). A dimmed overlay with a spotlight cut around the
+   current target and an Orb-narrated bubble placed next to it. */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+}
+
+.tour-dim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.tour-spot {
+  position: fixed;
+  border-radius: var(--radius-card);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62);
+  pointer-events: none;
+  transition:
+    left var(--duration-modal),
+    top var(--duration-modal),
+    width var(--duration-modal),
+    height var(--duration-modal);
+}
+
+/* The tour's narration bubble is the shared SpeechBubble primitive (speech.css). */

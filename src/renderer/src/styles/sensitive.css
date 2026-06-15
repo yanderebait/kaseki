@@ -1,0 +1,383 @@
+/* The sensitive folder (Part 11) — a full-screen overlay that shows setup,
+   the passcode prompt, or the encrypted file browser. */
+
+.vault {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  --vault-accent: #8a93a6;
+}
+
+.vault-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  height: 48px;
+  flex-shrink: 0;
+  padding: 0 var(--gap-4);
+  border-bottom: 0.5px solid var(--border-subtle);
+  color: var(--vault-accent);
+}
+
+.vault-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.vault-spacer {
+  flex: 1;
+}
+
+.vault-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* Setup / unlock panes — a centered card */
+
+.vault-pane {
+  margin: auto;
+  width: 100%;
+  max-width: 440px;
+  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+  color: var(--vault-accent);
+}
+
+.vault-heading {
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.vault-note {
+  font-size: var(--text-body);
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.vault-input,
+.vault-phrase {
+  width: 100%;
+  padding: var(--gap-4) var(--pad-card-medium);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.vault-phrase {
+  resize: vertical;
+  min-height: 64px;
+}
+
+.vault-input:focus,
+.vault-phrase:focus {
+  outline: none;
+  border-color: var(--vault-accent);
+}
+
+.vault-pane .primary {
+  width: 100%;
+}
+
+.vault-error {
+  font-size: var(--text-hint);
+  color: var(--accent-red);
+}
+
+.vault-link {
+  background: transparent;
+  border: none;
+  padding: var(--gap-2);
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.vault-link:hover {
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.vault-actions {
+  display: flex;
+  gap: var(--gap-3);
+  width: 100%;
+}
+
+.vault-actions button {
+  flex: 1;
+}
+
+.vault-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+}
+
+/* Recovery phrase reveal */
+
+.vault-mnemonic {
+  list-style: none;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap-2);
+  text-align: left;
+}
+
+.vault-mnemonic li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-2);
+  padding: var(--gap-3);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-body);
+  color: var(--text-primary);
+}
+
+.vault-mnemonic-n {
+  flex-shrink: 0;
+  width: 18px;
+  font-family: var(--font-sans);
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+  text-align: right;
+}
+
+/* File browser */
+
+.vault-browser {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.vault-browser-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vault-browser-count {
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.vault-empty {
+  margin-top: var(--space-5);
+  text-align: center;
+}
+
+.vault-file-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+}
+
+.vault-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  padding: var(--gap-3) var(--pad-card-medium);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+}
+
+.vault-file-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vault-file-name:not(:disabled):hover {
+  border-color: transparent;
+  color: var(--vault-accent);
+}
+
+.vault-file-name:disabled {
+  color: var(--text-primary);
+  cursor: default;
+}
+
+.vault-rename {
+  flex: 1;
+  min-width: 0;
+  padding: var(--gap-2) var(--gap-3);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--vault-accent);
+  border-radius: var(--radius-button);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.vault-rename:focus {
+  outline: none;
+}
+
+.vault-file-size {
+  flex-shrink: 0;
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.vault-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.vault-file-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+}
+
+.vault-file-actions button:hover {
+  border-color: transparent;
+  color: var(--text-primary);
+}
+
+/* In-memory file viewer (no print/save/export — plaintext never to disk) */
+
+.vault-viewer {
+  position: absolute;
+  inset: 48px 0 0 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+.vault-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  height: 44px;
+  flex-shrink: 0;
+  padding: 0 var(--gap-4);
+  border-bottom: 0.5px solid var(--border-subtle);
+}
+
+.vault-viewer-name {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+.vault-viewer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.vault-pdf {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.vault-pdf-page {
+  max-width: 100%;
+  height: auto;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+  border-radius: 2px;
+}
+
+.vault-toast {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: var(--gap-3) var(--pad-card-medium);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-hint);
+  color: var(--text-secondary);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Sensitive-folder settings pane */
+
+.settings-select {
+  padding: var(--gap-2) var(--gap-3);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.settings-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-3);
+  max-width: 320px;
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 0.5px solid var(--border-subtle);
+}
+
+.settings-subheading {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.settings-subsection .vault-input {
+  padding: var(--gap-3) var(--pad-card-medium);
+}
+
+.settings-subsection .primary {
+  align-self: flex-start;
+}
+
+.settings-ok {
+  font-size: var(--text-hint);
+  color: var(--accent-green, #639922);
+}

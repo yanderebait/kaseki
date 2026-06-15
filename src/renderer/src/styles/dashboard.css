@@ -1,0 +1,242 @@
+/* Profession dashboard shell (Part 6). Thin in Phase 2: header + read-only
+   applied configuration; the working panes arrive in later phases. */
+
+.dashboard {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-4);
+  height: 56px;
+  flex-shrink: 0;
+  padding: 0 var(--space-4);
+  border-bottom: 0.5px solid var(--border-subtle);
+}
+
+.dashboard-title {
+  font-size: var(--text-header);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.dashboard-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+}
+
+.dashboard-spacer {
+  flex: 1;
+}
+
+.launcher-dock {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+}
+
+.launcher-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: transparent;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-micro),
+    color var(--duration-micro),
+    background var(--duration-micro);
+}
+
+.launcher-item:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.launcher-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.launcher-icon-img {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+.launcher-add {
+  border-style: dashed;
+}
+
+.dashboard-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: var(--space-4);
+  padding: var(--pad-container);
+  overflow-y: auto;
+}
+
+.dashboard-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.dashboard-config {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.dashboard-config section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-3);
+}
+
+.config-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+}
+
+.config-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--gap-3);
+  padding: var(--gap-3) var(--pad-card-medium);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+}
+
+.config-type {
+  flex-shrink: 0;
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-2);
+}
+
+.status-chip {
+  padding: var(--gap-2) var(--gap-4);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-hint);
+  color: var(--text-secondary);
+}
+
+.cheatsheet-text {
+  white-space: pre-wrap;
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--pad-card-medium);
+}
+
+/* Dashboard calendar — upcoming events grouped by day */
+
+.dashboard-cal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-3);
+}
+
+.dashboard-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-3);
+}
+
+.dashboard-cal-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+}
+
+.dashboard-cal-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-5);
+}
+
+.dashboard-cal-day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+}
+
+.dashboard-cal-daylabel {
+  font-size: var(--text-hint);
+  font-weight: var(--weight-medium);
+  color: var(--text-tertiary);
+}
+
+.dashboard-cal-event {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  padding: var(--gap-2) var(--pad-card-medium);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+}
+
+.dashboard-cal-time {
+  flex-shrink: 0;
+  width: 72px;
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.dashboard-cal-title {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.dashboard-cal-title .completed {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+.dashboard-cal-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+}
+
+.dashboard-cal-recur {
+  flex-shrink: 0;
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- kaseki-file: serves local document bytes to the viewer; worker/blob
+         and wasm-unsafe-eval are for PDF.js (and Tesseract in Pass 2). All
+         sources are local — no remote origins, preserving zero-network. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: kaseki-file:; connect-src 'self' kaseki-file:; worker-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval'"
+    />
+    <title>Kaseki</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

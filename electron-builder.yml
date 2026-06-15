@@ -1,0 +1,26 @@
+appId: dev.kaseki.app
+productName: Kaseki
+directories:
+  output: dist
+files:
+  - out/**
+
+# The native SQLite module ships as a prebuilt binary fetched per platform
+# by `npm run rebuild:native` (see package.json). Rebuilding from source
+# fails against current Electron V8 headers, so packaging must not try.
+npmRebuild: false
+asarUnpack:
+  - '**/*.node'
+
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  target:
+    - AppImage
+  category: Office
+  maintainer: yanderebait

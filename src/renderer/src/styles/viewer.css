@@ -1,0 +1,906 @@
+/* Full-screen document viewer (Part 9). Takes over the window above
+   everything else. */
+
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+.viewer-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  height: 48px;
+  flex-shrink: 0;
+  padding: 0 var(--gap-4);
+  border-bottom: 0.5px solid var(--border-subtle);
+}
+
+.viewer-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+
+.viewer-scope-indicator {
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.viewer-spacer {
+  flex: 1;
+}
+
+.viewer-zoom {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+}
+
+.viewer-zoom-level {
+  font-size: var(--text-hint);
+  color: var(--text-secondary);
+  min-width: 40px;
+  text-align: center;
+}
+
+.viewer-more {
+  position: relative;
+  display: flex;
+}
+
+.viewer-more-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+}
+
+.viewer-more-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--gap-2);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.viewer-more-menu button {
+  text-align: left;
+  padding: var(--gap-3) var(--gap-4);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-button);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+}
+
+.viewer-more-menu button:hover {
+  background: var(--bg-tertiary);
+  border: none;
+}
+
+.viewer-more-menu .hint {
+  padding: var(--gap-3) var(--gap-4);
+}
+
+.viewer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.viewer-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-3);
+  padding: var(--gap-4);
+  border-right: 0.5px solid var(--border-subtle);
+  overflow-y: auto;
+}
+
+.viewer-scope-select {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: var(--radius-button);
+  padding: var(--gap-3) var(--gap-4);
+}
+
+.viewer-scope-bundle {
+  padding: var(--gap-3) var(--gap-4);
+  font-size: var(--text-task-title-list);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+}
+
+/* Bundles manager + add-to-bundle */
+.bundle-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.bundle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+}
+
+.bundle-open,
+.bundle-pick {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  text-align: left;
+  padding: var(--pad-card-medium);
+  background: transparent;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color var(--duration-micro);
+}
+
+.bundle-open:hover:not(:disabled),
+.bundle-pick:hover {
+  border-color: var(--accent);
+}
+
+.bundle-open:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.bundle-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+}
+
+.bundle-count {
+  flex-shrink: 0;
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.bundle-add {
+  display: flex;
+  gap: var(--gap-3);
+}
+
+.bundle-add input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Right-click context menu */
+.ctx-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+}
+
+.ctx-menu {
+  position: fixed;
+  z-index: 211;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--gap-2);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.ctx-menu button {
+  text-align: left;
+  padding: var(--gap-3) var(--gap-4);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-button);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  cursor: pointer;
+}
+
+.ctx-menu button:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border: none;
+}
+
+.ctx-menu button:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.viewer-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viewer-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  width: 100%;
+  text-align: left;
+  padding: var(--gap-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-button);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.viewer-file-row:hover {
+  background: var(--bg-secondary);
+  border: none;
+  color: var(--text-primary);
+}
+
+.viewer-file-row.active {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.viewer-file-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-task-title-list);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.viewer-file-size {
+  flex-shrink: 0;
+  font-size: var(--text-metadata);
+  color: var(--text-tertiary);
+}
+
+.viewer-canvas {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.viewer-loading,
+.viewer-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: var(--text-hint);
+}
+
+/* Image */
+.viewer-image-wrap {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.viewer-image {
+  align-self: flex-start;
+  object-fit: contain;
+  max-width: none;
+}
+
+/* Text / code */
+.viewer-text {
+  margin: 0;
+  padding: var(--space-4);
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Markdown */
+.viewer-markdown {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  line-height: 1.7;
+}
+
+.viewer-markdown h1,
+.viewer-markdown h2,
+.viewer-markdown h3 {
+  font-weight: var(--weight-medium);
+  margin: var(--space-4) 0 var(--space-2);
+  line-height: 1.3;
+}
+
+.viewer-markdown h1 {
+  font-size: var(--text-section-title);
+}
+
+.viewer-markdown h2 {
+  font-size: var(--text-card-name);
+}
+
+.viewer-markdown h3 {
+  font-size: var(--text-task-title-detail);
+}
+
+.viewer-markdown p,
+.viewer-markdown ul,
+.viewer-markdown ol,
+.viewer-markdown blockquote,
+.viewer-markdown pre {
+  margin: var(--space-2) 0;
+}
+
+.viewer-markdown ul,
+.viewer-markdown ol {
+  padding-left: var(--space-4);
+}
+
+.viewer-markdown a {
+  color: var(--accent);
+}
+
+.viewer-markdown code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+  background: var(--bg-secondary);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.viewer-markdown pre {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--pad-card-medium);
+  overflow-x: auto;
+}
+
+.viewer-markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+.viewer-markdown blockquote {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--border-emphasis);
+  color: var(--text-secondary);
+}
+
+.viewer-markdown hr {
+  border: none;
+  border-top: 0.5px solid var(--border-subtle);
+  margin: var(--space-4) 0;
+}
+
+/* CSV */
+.viewer-csv-wrap {
+  padding: var(--space-3);
+  overflow: auto;
+}
+
+.viewer-csv {
+  border-collapse: collapse;
+  font-size: var(--text-task-title-list);
+}
+
+.viewer-csv th,
+.viewer-csv td {
+  border: 0.5px solid var(--border-subtle);
+  padding: var(--gap-3) var(--gap-4);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.viewer-csv th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.viewer-csv tbody tr:hover {
+  background: var(--bg-secondary);
+}
+
+/* PDF */
+.pdf {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdf-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.pdf-side {
+  width: 150px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 0.5px solid var(--border-subtle);
+}
+
+.pdf-side-tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 0.5px solid var(--border-subtle);
+}
+
+.pdf-side-tabs button {
+  flex: 1;
+  padding: var(--gap-3) 0;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-tertiary);
+  font-size: var(--text-hint);
+  cursor: pointer;
+}
+
+.pdf-side-tabs button:hover {
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+}
+
+.pdf-side-tabs button.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.pdf-thumbs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-3);
+  padding: var(--gap-4);
+  overflow-y: auto;
+}
+
+.pdf-bookmarks {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+  padding: var(--gap-3);
+  overflow-y: auto;
+}
+
+.pdf-bookmark {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-1);
+}
+
+.pdf-bookmark-jump {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  padding: var(--gap-2) var(--gap-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-button);
+  cursor: pointer;
+}
+
+.pdf-bookmark-jump:hover {
+  background: var(--bg-tertiary);
+  border: none;
+}
+
+.pdf-bookmark-label {
+  font-size: var(--text-hint);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-bookmark-page {
+  font-size: var(--text-metadata);
+  color: var(--text-tertiary);
+}
+
+.pdf-bookmark-add {
+  display: flex;
+  gap: var(--gap-2);
+  margin-top: var(--gap-2);
+}
+
+.pdf-bookmark-add input {
+  width: 100%;
+  min-width: 0;
+  padding: var(--gap-2) var(--gap-3);
+}
+
+.pdf-thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-1);
+  padding: var(--gap-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  cursor: pointer;
+}
+
+.pdf-thumb canvas {
+  display: block;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.pdf-thumb.active {
+  border-color: var(--accent);
+}
+
+.pdf-thumb-num {
+  font-size: var(--text-metadata);
+  color: var(--text-tertiary);
+}
+
+.pdf-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.pdf-page {
+  position: relative;
+  align-self: flex-start;
+  line-height: 0;
+}
+
+.pdf-canvas {
+  display: block;
+  background: #fff;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* PDF.js text layer — transparent, positioned text over the canvas for
+   selection, find highlighting, and accessibility. These rules mirror
+   pdfjs-dist's pdf_viewer.css (the font-size calc depends on the
+   --total-scale-factor the renderer sets on the container per page). */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 1;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.textLayer span,
+.textLayer br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.textLayer .markedContent {
+  display: contents;
+}
+
+.textLayer span.pdf-find-hit {
+  background: rgba(255, 214, 0, 0.45);
+  border-radius: 2px;
+}
+
+.textLayer ::selection {
+  background: rgba(55, 138, 221, 0.35);
+}
+
+/* Annotation overlay — highlights and sticky notes, positioned in page
+   fractions so they are zoom-independent. The layer passes pointer events
+   through (so text stays selectable) except on the annotations themselves. */
+.annot-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.annot-highlight {
+  position: absolute;
+  border-radius: 2px;
+  pointer-events: auto;
+}
+
+.annot-highlight .annot-del {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.annot-highlight:hover .annot-del {
+  display: flex;
+}
+
+.annot-note {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.annot-note-marker {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  background: var(--accent);
+  border: none;
+  border-radius: 50% 50% 50% 0;
+  color: var(--on-accent);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.annot-note-popover {
+  position: absolute;
+  left: 14px;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-2);
+  width: 200px;
+  padding: var(--gap-3);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: var(--radius-button);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.annot-note-text {
+  flex: 1;
+  font-size: var(--text-hint);
+  color: var(--text-primary);
+}
+
+.pdf-page.adding-note {
+  cursor: crosshair;
+}
+
+.annot-hi-toolbar {
+  position: absolute;
+  z-index: 4;
+  transform: translate(-50%, calc(-100% - 6px));
+  display: flex;
+  gap: var(--gap-2);
+  padding: var(--gap-2);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: var(--radius-button);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+}
+
+.annot-hi-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.annot-note-input {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+  width: 220px;
+  padding: var(--gap-3);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: var(--radius-button);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+}
+
+.annot-note-input textarea {
+  font: inherit;
+  min-height: 56px;
+  resize: vertical;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: var(--radius-button);
+  padding: var(--gap-3);
+}
+
+.annot-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--gap-2);
+}
+
+.pdf-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-4);
+  height: 44px;
+  flex-shrink: 0;
+  border-top: 0.5px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  font-size: var(--text-hint);
+  color: var(--text-secondary);
+}
+
+.pdf-nav-btn {
+  padding: var(--gap-2) var(--gap-4);
+  background: transparent;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.pdf-nav-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.pdf-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pdf-nav-page input {
+  width: 48px;
+  padding: 2px var(--gap-2);
+  margin: 0 var(--gap-1);
+  text-align: center;
+}
+
+.pdf-find {
+  position: absolute;
+  top: var(--gap-3);
+  right: var(--gap-3);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  padding: var(--gap-2) var(--gap-3);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: var(--radius-button);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.pdf-find input {
+  width: 180px;
+  padding: var(--gap-2) var(--gap-3);
+}
+
+.pdf-find-count {
+  min-width: 64px;
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* Metadata pane */
+.viewer-meta {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-3);
+  padding: var(--space-4);
+  border-left: 0.5px solid var(--border-subtle);
+  overflow-y: auto;
+}
+
+.viewer-meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-1);
+}
+
+.viewer-meta-label {
+  font-size: var(--text-metadata);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+}
+
+.viewer-meta-value {
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.viewer-meta-value.mono {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}

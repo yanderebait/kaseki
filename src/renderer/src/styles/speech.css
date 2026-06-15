@@ -1,0 +1,71 @@
+/* The Orb's speech bubble (Part 12) — a small panel with the Orb's face and a
+   short message, used by the guided tour and the ambient empty-state/tip
+   bubbles. Positioned by the caller via inline styles. These rules are the
+   Phase 8 tour bubble's, generalized: same look, shared by both uses. */
+
+.speech-bubble {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-3);
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: var(--radius-card);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* The ambient (empty-state / tip) bubble sizes to its short message and is
+   dismissed by clicking it. */
+.speech-bubble-tappable {
+  max-width: 280px;
+  cursor: pointer;
+}
+
+.speech-bubble-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.speech-bubble-orb {
+  width: 32px;
+  height: 32px;
+}
+
+.speech-bubble-meta {
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.speech-bubble-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.speech-bubble-body {
+  font-size: var(--text-hint);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.speech-bubble-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--gap-2);
+}
+
+.speech-bubble-skip {
+  background: transparent;
+  border: none;
+  padding: var(--gap-2);
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+
+.speech-bubble-skip:hover {
+  border-color: transparent;
+  color: var(--text-secondary);
+}
