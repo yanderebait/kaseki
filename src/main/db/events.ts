@@ -1,5 +1,12 @@
-import { RRule } from 'rrule'
 import { getDb } from './connection'
+import {
+  capRuleBefore,
+  isValidTz,
+  machineTz,
+  occurrencesBetween,
+  shiftInstantByWallDelta
+} from '../recur'
+import { log } from '../logger'
 import type { CalendarEvent, EventOccurrence, NewEvent } from '../../shared/types'
 
 interface EventRow {
@@ -16,6 +23,14 @@ interface EventRow {
   original_start_at: string | null
   cancelled: number
   completed: number
+  tz: string | null
+}
+
+// The zone an event recurs in. Rows predating migration 008 (or with a zone
+// Intl doesn't recognise) fall back to the machine's current zone rather than
+// breaking expansion.
+function rowTz(row: EventRow): string {
+  return isValidTz(row.tz) ? row.tz : machineTz()
 }
 
 function toEvent(row: EventRow): CalendarEvent {
@@ -29,7 +44,8 @@ function toEvent(row: EventRow): CalendarEvent {
     allDay: !!row.all_day,
     location: row.location,
     recurrenceRule: row.recurrence_rule,
-    completed: !!row.completed
+    completed: !!row.completed,
+    tz: rowTz(row)
   }
 }
 
@@ -41,8 +57,8 @@ export function getEvent(id: number): CalendarEvent | null {
 export function createEvent(input: NewEvent): CalendarEvent {
   const result = getDb()
     .prepare(
-      `INSERT INTO events (space_id, title, description, start_at, end_at, all_day, location, recurrence_rule)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO events (space_id, title, description, start_at, end_at, all_day, location, recurrence_rule, tz)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.spaceId ?? null,
@@ -52,19 +68,35 @@ export function createEvent(input: NewEvent): CalendarEvent {
       input.end ?? null,
       input.allDay ? 1 : 0,
       input.location ?? null,
-      input.recurrenceRule ?? null
+      input.recurrenceRule ?? null,
+      isValidTz(input.tz) ? input.tz : machineTz()
     )
   return getEvent(Number(result.lastInsertRowid))!
 }
 
 // Edits the whole event / series (the master row).
+//
+// A series' exception children (per-occurrence edits, cancellations,
+// completions) are keyed by original_start_at — the exact slot instant they
+// replace. In 0.1.0 an "All events" edit that moved the start rewrote the
+// slot grid and silently detached every exception, so cancelled occurrences
+// came back from the dead. Now:
+//   - start moved, recurrence rule textually unchanged → every child's slot
+//     key (and, for cancellation/completion markers, its start) shifts by the
+//     same wall-clock delta, so exceptions stay attached;
+//   - recurrence rule changed → the old slots are meaningless, so the
+//     children are deleted deliberately (and loggably) instead of silently
+//     orphaned.
 export function updateEvent(id: number, patch: NewEvent): void {
-  getDb()
-    .prepare(
+  const db = getDb()
+  const before = db.prepare('SELECT * FROM events WHERE id = ?').get(id) as EventRow | undefined
+  if (!before) return
+  const newTz = isValidTz(patch.tz) ? patch.tz : rowTz(before)
+  db.transaction(() => {
+    db.prepare(
       `UPDATE events SET space_id = ?, title = ?, description = ?, start_at = ?, end_at = ?,
-        all_day = ?, location = ?, recurrence_rule = ? WHERE id = ?`
-    )
-    .run(
+        all_day = ?, location = ?, recurrence_rule = ?, tz = ? WHERE id = ?`
+    ).run(
       patch.spaceId ?? null,
       patch.title,
       patch.description ?? null,
@@ -73,17 +105,52 @@ export function updateEvent(id: number, patch: NewEvent): void {
       patch.allDay ? 1 : 0,
       patch.location ?? null,
       patch.recurrenceRule ?? null,
+      newTz,
       id
     )
+
+    if (!before.recurrence_rule) return
+    const ruleChanged = (patch.recurrenceRule ?? null) !== before.recurrence_rule
+    const tzChanged = newTz !== rowTz(before)
+    if (ruleChanged || tzChanged || !patch.recurrenceRule) {
+      const dropped = db
+        .prepare('DELETE FROM events WHERE recurrence_parent_id = ?')
+        .run(id).changes
+      if (dropped > 0) log.info('Series rule changed; dropped exception children', { id, dropped })
+      return
+    }
+    if (patch.start !== before.start_at) {
+      const children = db
+        .prepare('SELECT id, start_at, original_start_at FROM events WHERE recurrence_parent_id = ?')
+        .all(id) as Array<{ id: number; start_at: string; original_start_at: string | null }>
+      const write = db.prepare(
+        'UPDATE events SET original_start_at = ?, start_at = ? WHERE id = ?'
+      )
+      for (const c of children) {
+        if (!c.original_start_at) continue
+        const newKey = shiftInstantByWallDelta(c.original_start_at, newTz, before.start_at, patch.start)
+        // Cancellation/completion markers sit exactly on their slot and move
+        // with it; a user-edited override keeps its own edited start.
+        const newStart = c.start_at === c.original_start_at ? newKey : c.start_at
+        write.run(newKey, newStart, c.id)
+      }
+    }
+  })()
 }
 
 // Deletes an event and, if it is a series master, its override/exception
-// children.
+// children — plus any cross-links pointing at it, which previously lingered
+// as "(deleted event)" rows forever.
 export function deleteEvent(id: number): void {
   getDb()
     .transaction(() => {
       getDb().prepare('DELETE FROM events WHERE recurrence_parent_id = ?').run(id)
       getDb().prepare('DELETE FROM events WHERE id = ?').run(id)
+      getDb()
+        .prepare(
+          "DELETE FROM links WHERE (source_type = 'event' AND source_id = ?) OR (target_type = 'event' AND target_id = ?)"
+        )
+        .run(id, id)
     })()
 }
 
@@ -122,6 +189,15 @@ function occurrenceFromRow(
 // Expands every master into concrete occurrences within [rangeStart,
 // rangeEnd], applying overrides and skipping cancellations. spaceId filters
 // to that space plus Global (NULL) events; omit it for the home strip.
+//
+// v0.2.0 semantics:
+//   - recurrence fires at the master's wall-clock time in its own timezone
+//     (events.tz), so occurrences no longer drift an hour across DST;
+//   - an event *intersecting* the range is included, not only one *starting*
+//     in it — a 23:00–01:00 session now shows on both days, and something
+//     started before the window that is still running shows today;
+//   - one malformed rule no longer takes the whole calendar down: expansion
+//     failures are logged per-master and skipped.
 export function expandEvents(
   rangeStartISO: string,
   rangeEndISO: string,
@@ -151,29 +227,48 @@ export function expandEvents(
   const out: EventOccurrence[] = []
 
   for (const master of masters) {
+    const durationMs = master.end_at
+      ? new Date(master.end_at).getTime() - new Date(master.start_at).getTime()
+      : 0
+
     if (!master.recurrence_rule) {
       if (master.cancelled) continue
       const start = new Date(master.start_at)
-      if (start >= rangeStart && start <= rangeEnd) {
+      const end = new Date(start.getTime() + Math.max(0, durationMs))
+      if (start <= rangeEnd && end >= rangeStart) {
         out.push(occurrenceFromRow(master, master, master.start_at, accents, null))
       }
       continue
     }
 
-    const opts = RRule.parseString(master.recurrence_rule)
-    opts.dtstart = new Date(master.start_at)
-    const rule = new RRule(opts)
-    const durationMs = master.end_at
-      ? new Date(master.end_at).getTime() - new Date(master.start_at).getTime()
-      : 0
+    let slots: Date[]
+    try {
+      // Search back by the event's own duration so an occurrence that starts
+      // before the window but ends inside it is still found.
+      const lookback = new Date(rangeStart.getTime() - Math.max(0, durationMs))
+      slots = occurrencesBetween(
+        master.recurrence_rule,
+        master.start_at,
+        rowTz(master),
+        lookback,
+        rangeEnd
+      )
+    } catch (error) {
+      log.error('Recurrence expansion failed; skipping event', { id: master.id, error: String(error) })
+      continue
+    }
 
-    for (const slot of rule.between(rangeStart, rangeEnd, true)) {
+    for (const slot of slots) {
       const slotISO = slot.toISOString()
       const child = childMap.get(`${master.id}|${slotISO}`)
       if (child) {
         if (child.cancelled) continue
+        const childEnd = child.end_at ? new Date(child.end_at) : new Date(child.start_at)
+        if (new Date(child.start_at) > rangeEnd || childEnd < rangeStart) continue
         out.push(occurrenceFromRow(child, master, slotISO, accents, child.id))
       } else {
+        const end = new Date(slot.getTime() + Math.max(0, durationMs))
+        if (slot > rangeEnd || end < rangeStart) continue
         out.push({
           masterId: master.id,
           occurrenceStart: slotISO,
@@ -182,7 +277,7 @@ export function expandEvents(
           recurring: true,
           title: master.title,
           description: master.description,
-          end: master.end_at ? new Date(slot.getTime() + durationMs).toISOString() : null,
+          end: master.end_at ? end.toISOString() : null,
           allDay: !!master.all_day,
           location: master.location,
           spaceId: master.space_id,
@@ -261,13 +356,11 @@ export function cancelOccurrence(masterId: number, originalStartISO: string): vo
 // Caps the master series so it stops the moment before fromOriginalStart,
 // and drops any override/exception children at or after the cut. Shared by
 // splitSeries (edit this-and-future) and truncateSeries (delete this-and-
-// future); call inside a transaction.
+// future); call inside a transaction. The cap preserves every other rule
+// component (FREQ, INTERVAL, BYxxx) via capRuleBefore.
 function endSeriesBefore(master: EventRow, fromOriginalStartISO: string): void {
   const db = getDb()
-  const opts = RRule.parseString(master.recurrence_rule as string)
-  opts.dtstart = new Date(master.start_at)
-  opts.until = new Date(new Date(fromOriginalStartISO).getTime() - 1000)
-  const untilRule = RRule.optionsToString(opts).replace(/^.*RRULE:/s, '')
+  const untilRule = capRuleBefore(master.recurrence_rule as string, rowTz(master), fromOriginalStartISO)
   db.prepare('UPDATE events SET recurrence_rule = ? WHERE id = ?').run(untilRule, master.id)
   db.prepare('DELETE FROM events WHERE recurrence_parent_id = ? AND original_start_at >= ?').run(
     master.id,
@@ -284,8 +377,8 @@ export function splitSeries(masterId: number, fromOriginalStartISO: string, valu
   db.transaction(() => {
     endSeriesBefore(master, fromOriginalStartISO)
     db.prepare(
-      `INSERT INTO events (space_id, title, description, start_at, end_at, all_day, location, recurrence_rule)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO events (space_id, title, description, start_at, end_at, all_day, location, recurrence_rule, tz)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       values.spaceId ?? null,
       values.title,
@@ -294,7 +387,8 @@ export function splitSeries(masterId: number, fromOriginalStartISO: string, valu
       values.end ?? null,
       values.allDay ? 1 : 0,
       values.location ?? null,
-      values.recurrenceRule ?? master.recurrence_rule
+      values.recurrenceRule ?? master.recurrence_rule,
+      isValidTz(values.tz) ? values.tz : rowTz(master)
     )
   })()
 }
@@ -326,6 +420,15 @@ export function setOccurrenceCompleted(
   if (existing) {
     db.prepare('UPDATE events SET completed = ? WHERE id = ?').run(completed ? 1 : 0, existing.id)
   } else {
+    // The marker's end is this occurrence's own end — the slot plus the
+    // series' duration — not the master's first-ever end, which produced
+    // occurrences that "ended" weeks before they started.
+    const durationMs = master.end_at
+      ? new Date(master.end_at).getTime() - new Date(master.start_at).getTime()
+      : 0
+    const end = master.end_at
+      ? new Date(new Date(originalStartISO).getTime() + Math.max(0, durationMs)).toISOString()
+      : null
     db.prepare(
       `INSERT INTO events (space_id, title, description, start_at, end_at, all_day, location,
         recurrence_parent_id, original_start_at, completed)
@@ -335,7 +438,7 @@ export function setOccurrenceCompleted(
       master.title,
       master.description,
       originalStartISO,
-      master.end_at,
+      end,
       master.all_day,
       master.location,
       masterId,

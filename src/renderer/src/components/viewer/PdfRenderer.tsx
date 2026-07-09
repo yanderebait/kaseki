@@ -5,6 +5,7 @@ import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Annotation } from '../../../../shared/types'
 import { fileUrl, hexToRgba } from './viewerUtils'
+import { useEscapeLayer } from '../../hooks/useEscapeLayer'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -113,6 +114,7 @@ export default function PdfRenderer({ id, zoom }: { id: number; zoom: number }):
   const [matchIdx, setMatchIdx] = useState(0)
   const [addingNote, setAddingNote] = useState(false)
   const [selHi, setSelHi] = useState<{
+    rects: { x: number; y: number; w: number; h: number }[]
     norm: { x: number; y: number; w: number; h: number }
     left: number
     top: number
@@ -130,15 +132,37 @@ export default function PdfRenderer({ id, zoom }: { id: number; zoom: number }):
   const queryRef = useRef('')
   queryRef.current = query
 
+  // While open, the find bar is the top escape layer: Escape dismisses it
+  // and stops — it previously also fell through to the viewer's own Escape
+  // and closed the whole document.
+  useEscapeLayer(findOpen, () => {
+    setFindOpen(false)
+    setQuery('')
+  })
+
+  // Same for an in-progress note or selection toolbar: Escape cancels the
+  // annotation step without closing the viewer behind it.
+  useEscapeLayer(pendingNote !== null, () => setPendingNote(null))
+  useEscapeLayer(selHi !== null, () => {
+    window.getSelection()?.removeAllRanges()
+    setSelHi(null)
+  })
+
   useEffect(() => {
     let cancelled = false
     setDoc(null)
     setPage(1)
     setError(false)
+    let task: pdfjs.PDFDocumentLoadingTask | null = null
     fetch(fileUrl(id))
       .then((r) => r.arrayBuffer())
-      .then((data) => pdfjs.getDocument({ data }).promise)
+      .then((data) => {
+        if (cancelled) return null
+        task = pdfjs.getDocument({ data })
+        return task.promise
+      })
       .then((d) => {
+        if (!d) return
         if (cancelled) return
         setDoc(d)
         setNumPages(d.numPages)
@@ -148,6 +172,10 @@ export default function PdfRenderer({ id, zoom }: { id: number; zoom: number }):
       })
     return () => {
       cancelled = true
+      // Free the worker-side document — flipping through many files
+      // previously accumulated every parsed PDF in the worker for the life
+      // of the session. In pdfjs 6.x teardown lives on the loading task.
+      task?.destroy().catch(() => {})
     }
   }, [id])
 
@@ -300,13 +328,37 @@ export default function PdfRenderer({ id, zoom }: { id: number; zoom: number }):
       setSelHi(null)
       return
     }
-    const rect = sel.getRangeAt(0).getBoundingClientRect()
+    const range = sel.getRangeAt(0)
+    const rect = range.getBoundingClientRect()
     if (rect.width < 2) {
       setSelHi(null)
       return
     }
     const pr = pageEl.getBoundingClientRect()
+    // Per-line rectangles: a multi-line selection previously produced one
+    // bounding box spanning the whole block, shading the gaps between lines.
+    // Client rects give one box per rendered line fragment; near-duplicate
+    // and sliver rects are dropped.
+    const lineRects: { x: number; y: number; w: number; h: number }[] = []
+    for (const r of Array.from(range.getClientRects())) {
+      if (r.width < 2 || r.height < 2) continue
+      const norm = {
+        x: (r.left - pr.left) / pr.width,
+        y: (r.top - pr.top) / pr.height,
+        w: r.width / pr.width,
+        h: r.height / pr.height
+      }
+      const dup = lineRects.some(
+        (o) => Math.abs(o.x - norm.x) < 0.004 && Math.abs(o.y - norm.y) < 0.004 && Math.abs(o.w - norm.w) < 0.004
+      )
+      if (!dup) lineRects.push(norm)
+    }
+    if (lineRects.length === 0) {
+      setSelHi(null)
+      return
+    }
     setSelHi({
+      rects: lineRects,
       norm: {
         x: (rect.left - pr.left) / pr.width,
         y: (rect.top - pr.top) / pr.height,
@@ -320,13 +372,17 @@ export default function PdfRenderer({ id, zoom }: { id: number; zoom: number }):
 
   async function createHighlight(color: string): Promise<void> {
     if (!selHi) return
-    await window.kaseki.annotations.create({
-      fileId: id,
-      page,
-      type: 'highlight',
-      position: selHi.norm,
-      color
-    })
+    // One annotation per selected line — each deletes independently, and the
+    // rendered highlight hugs the text instead of boxing the paragraph.
+    for (const norm of selHi.rects) {
+      await window.kaseki.annotations.create({
+        fileId: id,
+        page,
+        type: 'highlight',
+        position: norm,
+        color
+      })
+    }
     window.getSelection()?.removeAllRanges()
     setSelHi(null)
     loadAnnotations()
@@ -378,10 +434,7 @@ export default function PdfRenderer({ id, zoom }: { id: number; zoom: number }):
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') stepMatch(e.shiftKey ? -1 : 1)
-              else if (e.key === 'Escape') {
-                setFindOpen(false)
-                setQuery('')
-              }
+              // Escape is handled by the layer stack
             }}
             autoFocus
           />

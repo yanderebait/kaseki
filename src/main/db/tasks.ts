@@ -72,6 +72,7 @@ interface TaskRow {
   billingMode: BillingMode | null
   billingRate: number | null
   billingUnits: number | null
+  completedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -80,7 +81,7 @@ const SELECT_TASK = `
   SELECT id, space_id AS spaceId, title, description, status, priority,
     pinned, archived, due_date AS dueDate, estimated_time AS estimatedTime,
     billing_mode AS billingMode, billing_rate AS billingRate, billing_units AS billingUnits,
-    created_at AS createdAt, updated_at AS updatedAt
+    completed_at AS completedAt, created_at AS createdAt, updated_at AS updatedAt
   FROM tasks
 `
 
@@ -99,6 +100,7 @@ function rowToTask(r: TaskRow): Task {
     billingMode: r.billingMode,
     billingRate: r.billingRate,
     billingUnits: r.billingUnits,
+    completedAt: r.completedAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt
   }
@@ -108,8 +110,8 @@ export function createTask(input: NewTask): Task {
   const db = getDb()
   const result = db
     .prepare(
-      `INSERT INTO tasks (space_id, title, description, status, priority, due_date, estimated_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO tasks (space_id, title, description, status, priority, due_date, estimated_time, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.spaceId,
@@ -118,7 +120,8 @@ export function createTask(input: NewTask): Task {
       input.status ?? null,
       input.priority ?? null,
       input.dueDate ?? null,
-      input.estimatedTime ?? null
+      input.estimatedTime ?? null,
+      input.status === 'Done' ? new Date().toISOString() : null
     )
   const id = Number(result.lastInsertRowid)
   logTaskActivity(id, 'created')
@@ -149,6 +152,12 @@ export function updateTask(id: number, patch: TaskPatch): void {
   if (patch.billingMode !== undefined) add('billing_mode', patch.billingMode)
   if (patch.billingRate !== undefined) add('billing_rate', patch.billingRate)
   if (patch.billingUnits !== undefined) add('billing_units', patch.billingUnits)
+  // completed_at records when a task entered 'Done' (fixed-price and per-unit
+  // billing counts in that month); it clears when the task leaves 'Done'.
+  if (patch.status !== undefined && before && patch.status !== before.status) {
+    if (patch.status === 'Done') add('completed_at', new Date().toISOString())
+    else if (before.status === 'Done') add('completed_at', null)
+  }
   if (sets.length === 0) return
   sets.push('updated_at = CURRENT_TIMESTAMP')
   getDb()
@@ -254,6 +263,8 @@ export function moveTask(id: number, newSpaceId: number): void {
 }
 
 // Hard delete with manual cascade (the schema has no ON DELETE CASCADE).
+// Also removes the task's activity-log rows, which previously accumulated as
+// permanent orphans feeding the home activity feed.
 export function deleteTask(id: number): void {
   const d = getDb()
   d.transaction(() => {
@@ -264,8 +275,20 @@ export function deleteTask(id: number): void {
     d.prepare('DELETE FROM task_notes WHERE task_id = ?').run(id)
     d.prepare('DELETE FROM time_entries WHERE task_id = ?').run(id)
     d.prepare('DELETE FROM task_dependencies WHERE upstream_id = ? OR downstream_id = ?').run(id, id)
+    d.prepare("DELETE FROM activity_log WHERE item_type = 'task' AND item_id = ?").run(id)
     d.prepare('DELETE FROM tasks WHERE id = ?').run(id)
   })()
+}
+
+// The archived shelf (v0.2.0): archiving was previously a one-way trapdoor —
+// every read path filtered archived = 0 and nothing could list or restore an
+// archived task. Most recently archived first; unarchiving is
+// updateTask(id, { archived: false }).
+export function listArchivedTasks(spaceId: number): TaskSummary[] {
+  const rows = getDb()
+    .prepare(`${SELECT_TASK} WHERE space_id = ? AND archived = 1 ORDER BY updated_at DESC`)
+    .all(spaceId) as TaskRow[]
+  return buildSummaries(spaceId, rows)
 }
 
 // Enrich a set of task rows (all from one space) with tags, subtask counts, and
@@ -559,17 +582,38 @@ export function getNote(taskId: number): KnowledgeContent | null {
   }
 }
 
+// One 'note updated' activity entry per task per this window — the editor
+// autosaves on a 600 ms debounce, and logging every flush filled the activity
+// feed with dozens of identical rows per minute of typing.
+const NOTE_ACTIVITY_THROTTLE_MS = 10 * 60_000
+
 export function saveNote(taskId: number, content: KnowledgeContent | null): void {
   const d = getDb()
-  d.prepare('DELETE FROM task_notes WHERE task_id = ?').run(taskId)
-  if (content !== null) {
-    d.prepare('INSERT INTO task_notes (task_id, content) VALUES (?, ?)').run(
-      taskId,
-      JSON.stringify(content)
-    )
-    logTaskActivity(taskId, 'note updated')
-    touchTask(taskId)
+  if (content === null) {
+    d.prepare('DELETE FROM task_notes WHERE task_id = ?').run(taskId)
+    return
   }
+  const json = JSON.stringify(content)
+  const updated = d
+    .prepare(
+      'UPDATE task_notes SET content = ? WHERE id = (SELECT id FROM task_notes WHERE task_id = ? ORDER BY id DESC LIMIT 1)'
+    )
+    .run(json, taskId)
+  if (updated.changes === 0) {
+    d.prepare('INSERT INTO task_notes (task_id, content) VALUES (?, ?)').run(taskId, json)
+  }
+  const last = d
+    .prepare(
+      `SELECT created_at AS at FROM activity_log
+       WHERE item_type = 'task' AND item_id = ? AND action = 'note updated'
+       ORDER BY id DESC LIMIT 1`
+    )
+    .get(taskId) as { at: string } | undefined
+  const lastMs = last ? Date.parse(last.at.replace(' ', 'T') + 'Z') : 0
+  if (!last || Date.now() - lastMs > NOTE_ACTIVITY_THROTTLE_MS) {
+    logTaskActivity(taskId, 'note updated')
+  }
+  touchTask(taskId)
 }
 
 // --- File attachments (reuse the content-addressed files store) ---
@@ -681,6 +725,17 @@ export function deleteTimeEntry(id: number): void {
 // spaces.preferences.billing) so the renderer can compute amounts in one pass.
 // Weeks start Monday in UTC; SQLite's date(...,'-6 days','weekday 1') yields
 // the Monday of the week containing each entry's start.
+//
+// v0.2.0: driven from tasks LEFT JOIN time_entries instead of from
+// time_entries alone, with the date window applied in the join. Two fixes:
+//   - fixed-price / per-unit tasks with no tracked time now appear (they were
+//     invisible in the billing report entirely);
+//   - each row carries completed_at, so the renderer can count a fixed price
+//     exactly once — in the month the task was marked Done — instead of
+//     re-counting the full price in every month that happened to have a
+//     logged time entry.
+// Archived tasks are deliberately included: completed matters get archived,
+// and the report is historical.
 export function timeReport(opts: TimeReportOptions = {}): TimeReportRow[] {
   const spaceId = opts.spaceId ?? null
   const from = opts.from ?? null
@@ -696,26 +751,32 @@ export function timeReport(opts: TimeReportOptions = {}): TimeReportRow[] {
          COALESCE(SUM(te.duration), 0) AS minutes,
          COALESCE(t.billing_mode, json_extract(s.preferences, '$.billing.mode'), 'none') AS billingMode,
          COALESCE(t.billing_rate, json_extract(s.preferences, '$.billing.rate')) AS billingRate,
-         t.billing_units AS billingUnits
-       FROM time_entries te
-       JOIN tasks t ON t.id = te.task_id
+         t.billing_units AS billingUnits,
+         t.completed_at AS completedAt
+       FROM tasks t
        JOIN spaces s ON s.id = t.space_id
-       WHERE (? IS NULL OR t.space_id = ?)
+       LEFT JOIN time_entries te ON te.task_id = t.id
          AND (? IS NULL OR te.start_at >= ?)
          AND (? IS NULL OR te.start_at < ?)
+       WHERE (? IS NULL OR t.space_id = ?)
+         AND (
+           te.id IS NOT NULL
+           OR COALESCE(t.billing_mode, json_extract(s.preferences, '$.billing.mode'), 'none') IN ('job', 'unit')
+         )
        GROUP BY t.id, weekStart
        ORDER BY s.name, t.title, weekStart`
     )
-    .all(spaceId, spaceId, from, from, to, to) as Array<{
+    .all(from, from, to, to, spaceId, spaceId) as Array<{
     taskId: number
     taskTitle: string
     spaceId: number
     spaceName: string
-    weekStart: string
+    weekStart: string | null
     minutes: number
     billingMode: BillingMode
     billingRate: number | null
     billingUnits: number | null
+    completedAt: string | null
   }>
   return rows
 }

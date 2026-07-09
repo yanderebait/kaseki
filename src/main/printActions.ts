@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { marked } from 'marked'
+import { parseCsv } from '../shared/csv'
 import { getFile, getFilePath } from './db/files'
 import { buildCombinedPdf } from './exportActions'
 import { paths } from './paths'
@@ -20,8 +21,10 @@ function esc(s: string): string {
   )
 }
 
+// Uses the same RFC-4180 parser as the on-screen viewer (shared/csv) — the
+// print path previously split on raw commas and mangled quoted fields.
 function csvToTable(text: string): string {
-  const rows = text.trim().split(/\r?\n/).map((line) => line.split(','))
+  const rows = parseCsv(text.trim()).filter((r) => r.length > 1 || (r[0] ?? '').length > 0)
   const head = (rows[0] ?? []).map((c) => `<th>${esc(c)}</th>`).join('')
   const body = rows
     .slice(1)

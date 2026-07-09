@@ -28,6 +28,12 @@ export default function TaskList({
   const [templates, setTemplates] = useState<TaskTemplate[]>([])
   const [spaces, setSpaces] = useState<Space[]>([])
   const [bulkTag, setBulkTag] = useState('')
+  const [busy, setBusy] = useState(false)
+  // The archived shelf (v0.2.0): archived tasks were previously invisible to
+  // every read path — archiving was a one-way trapdoor. The shelf is
+  // collapsed by default and loads on demand.
+  const [showArchived, setShowArchived] = useState(false)
+  const [archived, setArchived] = useState<TaskSummary[]>([])
   const { flash, rest } = useOrb()
 
   const refresh = useCallback(() => {
@@ -35,19 +41,35 @@ export default function TaskList({
     const p = q ? window.kaseki.tasks.search(spaceId, q) : window.kaseki.tasks.list(spaceId)
     p.then(setTasks)
     window.kaseki.tasks.templates(spaceId).then(setTemplates)
+    window.kaseki.tasks.listArchived(spaceId).then(setArchived)
   }, [spaceId, query])
 
   useEffect(refresh, [refresh, reloadSignal])
   useEffect(() => {
     window.kaseki.spaces.list().then(setSpaces)
   }, [])
-  useEffect(() => setSelected(new Set()), [spaceId])
+  useEffect(() => {
+    setSelected(new Set())
+    setShowArchived(false)
+  }, [spaceId])
 
+  // The busy flag makes add idempotent — a double Enter previously created
+  // the task twice.
   async function add(): Promise<void> {
     const t = title.trim()
-    if (t === '') return
-    await window.kaseki.tasks.create({ spaceId, title: t, status: statusSet[0] ?? null })
-    setTitle('')
+    if (t === '' || busy) return
+    setBusy(true)
+    try {
+      await window.kaseki.tasks.create({ spaceId, title: t, status: statusSet[0] ?? null })
+      setTitle('')
+    } finally {
+      setBusy(false)
+    }
+    refresh()
+  }
+
+  async function unarchive(id: number): Promise<void> {
+    await window.kaseki.tasks.update(id, { archived: false })
     refresh()
   }
 
@@ -131,7 +153,7 @@ export default function TaskList({
             if (e.key === 'Enter') add()
           }}
         />
-        <button type="button" className="task-add-btn" aria-label="Add task" onClick={add} disabled={title.trim() === ''}>
+        <button type="button" className="task-add-btn" aria-label="Add task" onClick={add} disabled={title.trim() === '' || busy}>
           <Plus size={18} />
         </button>
       </div>
@@ -220,6 +242,33 @@ export default function TaskList({
           </p>
         )}
       </div>
+
+      {archived.length > 0 && (
+        <div className="task-archived">
+          <button
+            type="button"
+            className="task-archived-toggle"
+            aria-expanded={showArchived}
+            onClick={() => setShowArchived((v) => !v)}
+          >
+            Archived · {archived.length}
+          </button>
+          {showArchived && (
+            <div className="task-archived-list">
+              {archived.map((t) => (
+                <div key={t.id} className="task-archived-row">
+                  <button type="button" className="task-archived-title" onClick={() => onOpenTask?.(t.id)}>
+                    {t.title}
+                  </button>
+                  <button type="button" className="task-archived-restore" onClick={() => unarchive(t.id)}>
+                    Unarchive
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }

@@ -4,12 +4,22 @@ import {
   createDatabase,
   getAuthStatus,
   getUser,
+  rekeyDatabase,
   unlockDatabase,
   type AuthStatus,
   type User
 } from './db/connection'
 import { getPreferences, setPreferences, type Preferences } from './db/prefs'
-import { createSpace, getSpaceDetail, listSpaces, setSpaceBilling } from './db/spaces'
+import {
+  archiveSpace,
+  createSpace,
+  deleteSpace,
+  getSpaceDetail,
+  listArchivedSpaces,
+  listSpaces,
+  setSpaceBilling,
+  updateSpace
+} from './db/spaces'
 import { listActivity } from './db/activity'
 import {
   createUrlItem,
@@ -19,8 +29,8 @@ import {
   removeItem,
   renameItem
 } from './db/launcher'
-import { addAppViaDialog, launchItem, setIconViaDialog, type LaunchResult } from './launcherActions'
-import { getFile, listFiles } from './db/files'
+import { addAppViaDialog, launchItem, removeSpaceLauncherIcons, setIconViaDialog, type LaunchResult } from './launcherActions'
+import { deleteFile, getFile, listFiles, renameFile } from './db/files'
 import {
   createAnnotation,
   deleteAnnotation,
@@ -76,6 +86,7 @@ import {
   deleteTimeEntry,
   getTaskDetail,
   incompleteBlockerCount,
+  listArchivedTasks,
   listSpaceTags,
   listTasks,
   listTemplates,
@@ -101,6 +112,7 @@ import {
   getVaultFile,
   listVaultFiles,
   lock as lockVault,
+  rearmAutoLock,
   renameVaultFile,
   resetWithRecovery,
   unlock as unlockVault,
@@ -144,6 +156,7 @@ import {
   type SpaceBilling,
   type Space,
   type SpaceDetail,
+  type SpaceEdit,
   type Subtask,
   type Tag,
   type Task,
@@ -205,13 +218,36 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  // Login (SQLCipher master) password change — previously impossible; the
+  // vault passcode could rotate but the database password was set once at
+  // account creation and frozen forever.
+  ipcMain.handle('auth:changePassword', (_event, current: unknown, next: unknown): AuthResult => {
+    if (typeof current !== 'string' || current.length === 0) {
+      return { ok: false, error: 'Current password must not be empty.' }
+    }
+    if (typeof next !== 'string' || next.length === 0) {
+      return { ok: false, error: 'New password must not be empty.' }
+    }
+    try {
+      return rekeyDatabase(current, next)
+        ? { ok: true }
+        : { ok: false, error: 'Current password is wrong.' }
+    } catch (error) {
+      log.error('Rekey failed', error)
+      return { ok: false, error: 'Could not change the password. See logs for details.' }
+    }
+  })
+
   ipcMain.handle('prefs:get', (): Preferences => getPreferences())
 
   ipcMain.handle('prefs:set', (_event, patch: unknown): Preferences => {
     if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
       throw new Error('prefs:set expects an object')
     }
-    return setPreferences(patch as Preferences)
+    const next = setPreferences(patch as Preferences)
+    // A running auto-lock countdown picks the new interval up immediately.
+    if ('vaultAutoLock' in (patch as Record<string, unknown>)) rearmAutoLock()
+    return next
   })
 
   // Onboarding state machine (Part 13 / Phase 8). `needed` is the single
@@ -257,6 +293,33 @@ export function registerIpcHandlers(): void {
         : undefined,
       cheatsheet: typeof obj.cheatsheet === 'string' ? obj.cheatsheet : undefined
     })
+  })
+
+  ipcMain.handle('spaces:update', (_event, id: unknown, patch: unknown): void => {
+    if (typeof id !== 'number') throw new Error('spaces:update expects a numeric id')
+    const o = (patch ?? {}) as Record<string, unknown>
+    const edit: SpaceEdit = {}
+    if (typeof o.name === 'string' && o.name.trim()) edit.name = o.name.trim()
+    if (o.accentColor === null || typeof o.accentColor === 'string') edit.accentColor = o.accentColor
+    if (o.icon === null || typeof o.icon === 'string') edit.icon = o.icon
+    if (typeof o.cheatsheet === 'string') edit.cheatsheet = o.cheatsheet
+    if (Array.isArray(o.statusSet)) {
+      edit.statusSet = o.statusSet.filter((x): x is string => typeof x === 'string')
+    }
+    updateSpace(id, edit)
+  })
+
+  ipcMain.handle('spaces:archive', (_event, id: unknown, archived: unknown): void => {
+    if (typeof id !== 'number') throw new Error('spaces:archive expects a numeric id')
+    archiveSpace(id, archived !== false)
+  })
+
+  ipcMain.handle('spaces:listArchived', (): Space[] => listArchivedSpaces())
+
+  ipcMain.handle('spaces:delete', (_event, id: unknown): void => {
+    if (typeof id !== 'number') throw new Error('spaces:delete expects a numeric id')
+    removeSpaceLauncherIcons(id)
+    deleteSpace(id)
   })
 
   ipcMain.handle('activity:list', (): ActivityEntry[] => listActivity())
@@ -314,6 +377,17 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('files:get', (_event, id: unknown): FileRecord | null => {
     if (typeof id !== 'number') throw new Error('files:get expects a numeric id')
     return getFile(id)
+  })
+
+  ipcMain.handle('files:rename', (_event, id: unknown, name: unknown): void => {
+    if (typeof id !== 'number') throw new Error('files:rename expects a numeric id')
+    if (typeof name !== 'string' || name.trim().length === 0) throw new Error('Name is required')
+    renameFile(id, name.trim())
+  })
+
+  ipcMain.handle('files:delete', (_event, id: unknown): void => {
+    if (typeof id !== 'number') throw new Error('files:delete expects a numeric id')
+    deleteFile(id)
   })
 
   ipcMain.handle('files:print', (_event, id: unknown): Promise<PrintResult> => {
@@ -600,13 +674,16 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('links:candidates', (): LinkCandidates => linkCandidates())
 
   ipcMain.handle('tasks:list', (_event, spaceId: unknown): TaskSummary[] =>
-    listTasks(Number(spaceId))
+    listTasks(requireId(spaceId, 'tasks:list'))
+  )
+  ipcMain.handle('tasks:listArchived', (_event, spaceId: unknown): TaskSummary[] =>
+    listArchivedTasks(requireId(spaceId, 'tasks:listArchived'))
   )
   ipcMain.handle('tasks:search', (_event, spaceId: unknown, query: unknown): TaskSummary[] =>
-    searchTasks(Number(spaceId), String(query ?? ''))
+    searchTasks(requireId(spaceId, 'tasks:search'), String(query ?? ''))
   )
   ipcMain.handle('tasks:get', (_event, id: unknown): TaskDetail | null =>
-    getTaskDetail(Number(id))
+    getTaskDetail(requireId(id, 'tasks:get'))
   )
   ipcMain.handle('tasks:create', (_event, input: unknown): Task => {
     const t = input as NewTask
@@ -616,65 +693,65 @@ export function registerIpcHandlers(): void {
     return createTask({ ...t, title: t.title.trim() })
   })
   ipcMain.handle('tasks:update', (_event, id: unknown, patch: unknown): void =>
-    updateTask(Number(id), (patch ?? {}) as TaskPatch)
+    updateTask(requireId(id, 'tasks:update'), (patch ?? {}) as TaskPatch)
   )
-  ipcMain.handle('tasks:delete', (_event, id: unknown): void => deleteTask(Number(id)))
+  ipcMain.handle('tasks:delete', (_event, id: unknown): void => deleteTask(requireId(id, 'tasks:delete')))
   ipcMain.handle('tasks:move', (_event, id: unknown, spaceId: unknown): void =>
-    moveTask(Number(id), Number(spaceId))
+    moveTask(requireId(id, 'tasks:move'), requireId(spaceId, 'tasks:move'))
   )
 
   ipcMain.handle('tasks:addSubtask', (_event, taskId: unknown, title: unknown): Subtask =>
-    addSubtask(Number(taskId), String(title ?? '').trim())
+    addSubtask(requireId(taskId, 'tasks:addSubtask'), String(title ?? '').trim())
   )
   ipcMain.handle(
     'tasks:updateSubtask',
     (_event, id: unknown, patch: unknown): void =>
-      updateSubtask(Number(id), (patch ?? {}) as { title?: string; completed?: boolean })
+      updateSubtask(requireId(id, 'tasks:updateSubtask'), (patch ?? {}) as { title?: string; completed?: boolean })
   )
-  ipcMain.handle('tasks:deleteSubtask', (_event, id: unknown): void => deleteSubtask(Number(id)))
+  ipcMain.handle('tasks:deleteSubtask', (_event, id: unknown): void => deleteSubtask(requireId(id, 'tasks:deleteSubtask')))
   ipcMain.handle('tasks:reorderSubtask', (_event, id: unknown, dir: unknown): void =>
-    reorderSubtask(Number(id), dir === -1 ? -1 : 1)
+    reorderSubtask(requireId(id, 'tasks:reorderSubtask'), dir === -1 ? -1 : 1)
   )
 
-  ipcMain.handle('tasks:tags', (_event, spaceId: unknown): Tag[] => listSpaceTags(Number(spaceId)))
+  ipcMain.handle('tasks:tags', (_event, spaceId: unknown): Tag[] => listSpaceTags(requireId(spaceId, 'tasks:tags')))
   ipcMain.handle('tasks:createTag', (_event, spaceId: unknown, name: unknown, color: unknown): Tag =>
-    createTag(Number(spaceId), String(name ?? ''), typeof color === 'string' ? color : null)
+    createTag(requireId(spaceId, 'tasks:createTag'), String(name ?? ''), typeof color === 'string' ? color : null)
   )
   ipcMain.handle('tasks:addTag', (_event, taskId: unknown, tagId: unknown): void =>
-    addTag(Number(taskId), Number(tagId))
+    addTag(requireId(taskId, 'tasks:addTag'), requireId(tagId, 'tasks:addTag'))
   )
   ipcMain.handle('tasks:removeTag', (_event, taskId: unknown, tagId: unknown): void =>
-    removeTag(Number(taskId), Number(tagId))
+    removeTag(requireId(taskId, 'tasks:removeTag'), requireId(tagId, 'tasks:removeTag'))
   )
   ipcMain.handle('tasks:setField', (_event, taskId: unknown, fieldId: unknown, value: unknown): void =>
-    setFieldValue(Number(taskId), Number(fieldId), value === null ? null : String(value))
+    setFieldValue(requireId(taskId, 'tasks:setField'), requireId(fieldId, 'tasks:setField'), value === null ? null : String(value))
   )
 
   ipcMain.handle('tasks:addDependency', (_event, up: unknown, down: unknown): DependencyResult =>
-    addDependency(Number(up), Number(down))
+    addDependency(requireId(up, 'tasks:addDependency'), requireId(down, 'tasks:addDependency'))
   )
   ipcMain.handle('tasks:removeDependency', (_event, up: unknown, down: unknown): void =>
-    removeDependency(Number(up), Number(down))
+    removeDependency(requireId(up, 'tasks:removeDependency'), requireId(down, 'tasks:removeDependency'))
   )
   ipcMain.handle('tasks:incompleteBlockers', (_event, id: unknown): number =>
-    incompleteBlockerCount(Number(id))
+    incompleteBlockerCount(requireId(id, 'tasks:incompleteBlockers'))
   )
   ipcMain.handle('tasks:saveNote', (_event, id: unknown, content: unknown): void =>
-    saveNote(Number(id), (content ?? null) as KnowledgeContent | null)
+    saveNote(requireId(id, 'tasks:saveNote'), (content ?? null) as KnowledgeContent | null)
   )
   ipcMain.handle('tasks:detachFile', (_event, taskId: unknown, fileId: unknown): void =>
-    unlinkFile(Number(taskId), Number(fileId))
+    unlinkFile(requireId(taskId, 'tasks:detachFile'), requireId(fileId, 'tasks:detachFile'))
   )
   ipcMain.handle('tasks:templates', (_event, spaceId: unknown): TaskTemplate[] =>
-    listTemplates(Number(spaceId))
+    listTemplates(requireId(spaceId, 'tasks:templates'))
   )
   ipcMain.handle('tasks:createTemplate', (_event, taskId: unknown, name: unknown): TaskTemplate =>
-    createTemplate(Number(taskId), String(name ?? '').trim() || 'Template')
+    createTemplate(requireId(taskId, 'tasks:createTemplate'), String(name ?? '').trim() || 'Template')
   )
-  ipcMain.handle('tasks:applyTemplate', (_event, id: unknown): Task => applyTemplate(Number(id)))
-  ipcMain.handle('tasks:deleteTemplate', (_event, id: unknown): void => deleteTemplate(Number(id)))
+  ipcMain.handle('tasks:applyTemplate', (_event, id: unknown): Task => applyTemplate(requireId(id, 'tasks:applyTemplate')))
+  ipcMain.handle('tasks:deleteTemplate', (_event, id: unknown): void => deleteTemplate(requireId(id, 'tasks:deleteTemplate')))
   ipcMain.handle('tasks:attachFiles', (_event, taskId: unknown): Promise<FileRecord[]> =>
-    attachFilesToTask(Number(taskId))
+    attachFilesToTask(requireId(taskId, 'tasks:attachFiles'))
   )
 
   // Time tracking (Part 7, Phase 10b). The timer/pomodoro and manual-entry UI
@@ -687,12 +764,12 @@ export function registerIpcHandlers(): void {
     return addTimeEntry(o)
   })
   ipcMain.handle('tasks:listTime', (_event, taskId: unknown): TimeEntry[] =>
-    listTimeEntries(Number(taskId))
+    listTimeEntries(requireId(taskId, 'tasks:listTime'))
   )
   ipcMain.handle('tasks:updateTime', (_event, id: unknown, patch: unknown): void =>
-    updateTimeEntry(Number(id), (patch ?? {}) as TimeEntryPatch)
+    updateTimeEntry(requireId(id, 'tasks:updateTime'), (patch ?? {}) as TimeEntryPatch)
   )
-  ipcMain.handle('tasks:deleteTime', (_event, id: unknown): void => deleteTimeEntry(Number(id)))
+  ipcMain.handle('tasks:deleteTime', (_event, id: unknown): void => deleteTimeEntry(requireId(id, 'tasks:deleteTime')))
   ipcMain.handle('tasks:timeReport', (_event, opts: unknown): TimeReportRow[] => {
     const o = (opts ?? {}) as Record<string, unknown>
     return timeReport({
@@ -737,23 +814,23 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('vault:status', (): VaultStatus => vaultStatus())
 
-  ipcMain.handle('vault:create', (_event, passcode: unknown): { mnemonic: string } => {
+  ipcMain.handle('vault:create', (_event, passcode: unknown): Promise<{ mnemonic: string }> => {
     return createVault(requirePasscode(passcode))
   })
 
-  ipcMain.handle('vault:unlock', (_event, passcode: unknown): boolean => {
+  ipcMain.handle('vault:unlock', (_event, passcode: unknown): Promise<boolean> => {
     if (typeof passcode !== 'string') throw new Error('vault:unlock expects a passcode')
     return unlockVault(passcode)
   })
 
   ipcMain.handle('vault:lock', (): void => lockVault())
 
-  ipcMain.handle('vault:changePasscode', (_event, oldPasscode: unknown, newPasscode: unknown): boolean => {
+  ipcMain.handle('vault:changePasscode', (_event, oldPasscode: unknown, newPasscode: unknown): Promise<boolean> => {
     if (typeof oldPasscode !== 'string') throw new Error('vault:changePasscode expects the current passcode')
     return changePasscode(oldPasscode, requirePasscode(newPasscode))
   })
 
-  ipcMain.handle('vault:resetWithRecovery', (_event, mnemonic: unknown, newPasscode: unknown): boolean => {
+  ipcMain.handle('vault:resetWithRecovery', (_event, mnemonic: unknown, newPasscode: unknown): Promise<boolean> => {
     if (typeof mnemonic !== 'string') throw new Error('vault:resetWithRecovery expects a recovery phrase')
     return resetWithRecovery(mnemonic, requirePasscode(newPasscode))
   })
@@ -779,6 +856,16 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('vault:scheduleClipboardClear', (): boolean => scheduleClipboardClear())
+}
+
+// Strict id validation for handlers that previously coerced with Number():
+// Number(null) is 0 and Number(undefined) is NaN, both of which sailed into
+// SQL as nonsense ids. Every id-taking task handler now validates like the
+// rest of the surface.
+function requireId(value: unknown, channel: string): number {
+  const n = typeof value === 'number' ? value : NaN
+  if (!Number.isInteger(n)) throw new Error(`${channel} expects a numeric id`)
+  return n
 }
 
 // The passcode has no complexity policy (Part 11), but it must be a non-empty

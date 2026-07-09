@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useEscapeLayer } from '../../hooks/useEscapeLayer'
 import type { VaultFile } from '../../../../shared/types'
 import { Pencil, Plus, Trash } from '../../icons'
 import { formatSize } from '../viewer/viewerUtils'
@@ -15,6 +16,10 @@ export default function VaultBrowser({
 }): React.JSX.Element {
   const [files, setFiles] = useState<VaultFile[]>([])
   const [renaming, setRenaming] = useState<number | null>(null)
+  // While renaming, the input is the top escape layer: Escape cancels the
+  // rename only (the stack listener runs in the capture phase, so the input's
+  // own handler alone would lose the race with outer layers).
+  useEscapeLayer(renaming != null, () => setRenaming(null))
   const [renameValue, setRenameValue] = useState('')
   const [pendingDelete, setPendingDelete] = useState<VaultFile | null>(null)
   const [ctx, setCtx] = useState<{ x: number; y: number; file: VaultFile } | null>(null)
@@ -87,7 +92,7 @@ export default function VaultBrowser({
                   onBlur={commitRename}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') commitRename()
-                    if (e.key === 'Escape') setRenaming(null)
+                    // Escape is handled by the layer stack
                   }}
                 />
               ) : (

@@ -7,10 +7,20 @@ import {
   getAuthStatus,
   getDb,
   getUser,
+  rekeyDatabase,
   unlockDatabase
 } from './db/connection'
 import { getPreferences, setPreferences } from './db/prefs'
-import { createSpace, getSpaceDetail, listSpaces, setSpaceBilling } from './db/spaces'
+import {
+  archiveSpace,
+  createSpace,
+  deleteSpace,
+  getSpaceDetail,
+  listArchivedSpaces,
+  listSpaces,
+  setSpaceBilling,
+  updateSpace
+} from './db/spaces'
 import { listActivity } from './db/activity'
 import {
   createUrlItem,
@@ -19,7 +29,7 @@ import {
   normalizeUrl,
   removeItem
 } from './db/launcher'
-import { deriveKind, getFile, ingestFile, listFiles } from './db/files'
+import { deleteFile, deriveKind, getFile, ingestFile, listFiles, renameFile } from './db/files'
 import {
   createAnnotation,
   deleteAnnotation,
@@ -38,11 +48,14 @@ import {
 import {
   cancelOccurrence,
   createEvent,
+  deleteEvent,
   expandEvents,
+  getEvent,
   setOccurrenceCompleted,
   setOverride,
   splitSeries,
-  truncateSeries
+  truncateSeries,
+  updateEvent
 } from './db/events'
 import { buildIcs, exportIcs } from './ics'
 import {
@@ -57,6 +70,16 @@ import {
 } from './db/knowledge'
 import { createLink, deleteLink, linkCandidates, listBacklinks, listOutgoing } from './db/links'
 import { globalSearch } from './db/search'
+import { parseCsv } from '../shared/csv'
+import {
+  capRuleBefore,
+  floatingFromInstant,
+  instantFromWall,
+  isValidTz,
+  occurrencesBetween,
+  shiftInstantByWallDelta
+} from './recur'
+import { normalizeArchivedStatuses } from './db/migrations'
 import { buildEvent, crashConfig, parseDsn } from './crashReport'
 import { homedir } from 'node:os'
 import { pmText, pmToMarkdown } from './prosemirror'
@@ -112,6 +135,7 @@ import {
   listTaskActivity,
   listTaskFiles,
   listTaskTags,
+  listArchivedTasks,
   listTasks,
   listTemplates,
   listTimeEntries,
@@ -128,10 +152,19 @@ import {
   updateTask,
   updateTimeEntry
 } from './db/tasks'
-import { computeAmount, resolveBilling } from '../shared/billing'
-import { PRESETS, getPreset, presetToSpace, searchPresets } from '../shared/presets'
+import { computeAmount, computeWindowAmount, resolveBilling } from '../shared/billing'
+import { PRESETS, UNIVERSAL_STATUSES, getPreset, presetToSpace, searchPresets } from '../shared/presets'
 import { LEGAL_DOCUMENTS, LEGAL_VERSION, legalAcceptanceStatus, recordLegalAcceptance } from './legal'
 import { LEGAL_TITLES } from '../shared/legal'
+
+function readFileExists(path: string): boolean {
+  try {
+    readFileSync(path)
+    return true
+  } catch {
+    return false
+  }
+}
 
 // A small Tiptap/ProseMirror document for exercising page content.
 function pmDoc(...paragraphs: string[]): Record<string, unknown> {
@@ -253,7 +286,7 @@ export async function runSelfTest(): Promise<number> {
     check('preset space stores its cheatsheet', detail.cheatsheet.length > 0)
     check('custom name overrides preset name', detail.name === "Sample Legal")
     const bare = getSpaceDetail(createSpace({ name: 'Bare', accentColor: '#378ADD' }).id)
-    check('bare space defaults to universal statuses', bare.statusSet.length === 6 && bare.fields.length === 0)
+    check('bare space defaults to universal statuses', bare.statusSet.join('|') === UNIVERSAL_STATUSES.join('|') && bare.fields.length === 0)
 
     // Launcher
     check('url normalization adds scheme', normalizeUrl('example.com') === 'https://example.com')
@@ -593,6 +626,7 @@ export async function runSelfTest(): Promise<number> {
           allDay: false,
           location: 'Room A',
           recurrenceRule: 'FREQ=WEEKLY',
+          tz: 'UTC',
           exdates: ['2026-07-20T09:00:00.000Z'],
           overrides: [
             {
@@ -606,7 +640,7 @@ export async function runSelfTest(): Promise<number> {
             }
           ]
         },
-        { id: 8, title: 'Holiday', description: null, start: '2026-07-15T00:00:00.000Z', end: null, allDay: true, location: null, recurrenceRule: null, exdates: [], overrides: [] }
+        { id: 8, title: 'Holiday', description: null, start: '2026-07-15T00:00:00.000Z', end: null, allDay: true, location: null, recurrenceRule: null, tz: 'UTC', exdates: [], overrides: [] }
       ],
       'Test',
       '20260101T000000Z'
@@ -614,11 +648,11 @@ export async function runSelfTest(): Promise<number> {
     check('ics wraps in VCALENDAR', ics.startsWith('BEGIN:VCALENDAR\r\n') && ics.trimEnd().endsWith('END:VCALENDAR'))
     check('ics uses CRLF line breaks', ics.includes('\r\n'))
     check('ics emits the RRULE verbatim', ics.includes('RRULE:FREQ=WEEKLY'))
-    check('ics timed DTSTART is absolute UTC', ics.includes('DTSTART:20260713T090000Z'))
+    check('ics recurring DTSTART carries its TZID', ics.includes('DTSTART;TZID=UTC:20260713T090000'))
     check('ics all-day DTSTART is a floating DATE', ics.includes('DTSTART;VALUE=DATE:'))
     check('ics escapes TEXT special characters', ics.includes('SUMMARY:Stand\\; up') && ics.includes('DESCRIPTION:note\\, line1\\nline2'))
-    check('ics emits EXDATE for cancellations', ics.includes('EXDATE:20260720T090000Z'))
-    check('ics override carries a RECURRENCE-ID', ics.includes('RECURRENCE-ID:20260727T090000Z'))
+    check('ics emits EXDATE for cancellations', ics.includes('EXDATE;TZID=UTC:20260720T090000'))
+    check('ics override carries a RECURRENCE-ID', ics.includes('RECURRENCE-ID;TZID=UTC:20260727T090000'))
     check('exportIcs reads events from the database', exportIcs('All', '20260101T000000Z', null).includes('BEGIN:VEVENT'))
 
     // Knowledge area — pages, tree, content
@@ -821,17 +855,17 @@ export async function runSelfTest(): Promise<number> {
     const dek = randomKey()
     const saltP = randomSalt()
     const saltR = randomSalt()
-    const kekPass = deriveKeyFromPasscode('hunter2', saltP)
+    const kekPass = await deriveKeyFromPasscode('hunter2', saltP)
     const recEntropy = mnemonicToEntropy(generateMnemonic())
     const kekRec = deriveKeyFromEntropy(recEntropy, saltR)
     const wrappedByPass = seal(kekPass, dek)
     const wrappedByRec = seal(kekRec, dek)
     check('dek unwraps via the passcode key', open(kekPass, wrappedByPass).equals(dek))
     check('dek unwraps via the recovery key', open(kekRec, wrappedByRec).equals(dek))
-    check('wrong passcode fails to unwrap the dek', tryOpen(deriveKeyFromPasscode('wrong', saltP), wrappedByPass) === null)
+    check('wrong passcode fails to unwrap the dek', tryOpen(await deriveKeyFromPasscode('wrong', saltP), wrappedByPass) === null)
     check('derived key is 256-bit', kekPass.length === KEY_BYTES)
-    check('scrypt is deterministic for the same passcode and salt', deriveKeyFromPasscode('pw', saltP).equals(deriveKeyFromPasscode('pw', saltP)))
-    check('scrypt diverges on a different salt', !deriveKeyFromPasscode('pw', saltP).equals(deriveKeyFromPasscode('pw', saltR)))
+    check('scrypt is deterministic for the same passcode and salt', (await deriveKeyFromPasscode('pw', saltP)).equals(await deriveKeyFromPasscode('pw', saltP)))
+    check('scrypt diverges on a different salt', !(await deriveKeyFromPasscode('pw', saltP)).equals(await deriveKeyFromPasscode('pw', saltR)))
 
     check('generated mnemonic has 24 words', generateMnemonic().split(' ').length === 24)
     check('mnemonic round-trips through entropy', mnemonicToEntropy(entropyToMnemonic(Buffer.alloc(32, 7))).equals(Buffer.alloc(32, 7)))
@@ -842,7 +876,7 @@ export async function runSelfTest(): Promise<number> {
 
     // Vault store (Part 11) — create, encrypt, lock/unlock, change, recover
     check('vault starts absent', vaultStatus() === 'absent')
-    const recovery = createVault('open sesame').mnemonic
+    const recovery = (await createVault('open sesame')).mnemonic
     check('createVault returns a 24-word phrase and unlocks', recovery.split(' ').length === 24 && vaultStatus() === 'unlocked')
 
     const vaultSrc = join(paths.root, 'selftest-secret.txt')
@@ -865,22 +899,227 @@ export async function runSelfTest(): Promise<number> {
       lockedReadThrew = true
     }
     check('locked vault refuses to list', lockedReadThrew)
-    check('wrong passcode does not unlock', unlockVault('wrong') === false && vaultStatus() === 'locked')
-    check('correct passcode unlocks', unlockVault('open sesame') === true && listVaultFiles()[0].name === 'account.txt')
+    check('wrong passcode does not unlock', (await unlockVault('wrong')) === false && vaultStatus() === 'locked')
+    check('correct passcode unlocks', (await unlockVault('open sesame')) === true && listVaultFiles()[0].name === 'account.txt')
 
-    check('change passcode succeeds with the old one', changePasscode('open sesame', 'new passphrase') === true)
+    check('change passcode succeeds with the old one', (await changePasscode('open sesame', 'new passphrase')) === true)
     lockVault()
-    check('old passcode no longer unlocks', unlockVault('open sesame') === false)
-    check('new passcode unlocks', unlockVault('new passphrase') === true)
+    check('old passcode no longer unlocks', (await unlockVault('open sesame')) === false)
+    check('new passcode unlocks', (await unlockVault('new passphrase')) === true)
 
-    check('recovery phrase resets the passcode', resetWithRecovery(recovery, 'recovered pass') === true)
-    check('a wrong recovery phrase is rejected', resetWithRecovery(generateMnemonic(), 'nope') === false)
+    check('recovery phrase resets the passcode', (await resetWithRecovery(recovery, 'recovered pass')) === true)
+    check('a wrong recovery phrase is rejected', (await resetWithRecovery(generateMnemonic(), 'nope')) === false)
     lockVault()
-    check('the reset passcode unlocks', unlockVault('recovered pass') === true)
+    check('the reset passcode unlocks', (await unlockVault('recovered pass')) === true)
     check('files survive passcode change and recovery', readVaultFile(secret.id)?.bytes.toString() === 'sort code 12-34-56')
 
     deleteVaultFile(secret.id)
     check('delete removes the file and its blob', listVaultFiles().length === 0)
+
+    // ————— v0.2.0 fixes —————
+
+    // Timezone-aware recurrence (the DST fix). A weekly 14:00 Europe/London
+    // event created in June (13:00Z under BST) must land at 14:00 London on
+    // both sides of the 25 Oct 2026 clock change — 13:00Z before, 14:00Z
+    // after. 0.1.0 recurred at a fixed UTC instant and drifted an hour.
+    check('tz validity: Europe/London yes, Narnia no', isValidTz('Europe/London') && !isValidTz('Mars/Olympus'))
+    const octSlots = occurrencesBetween('FREQ=WEEKLY', '2026-06-03T13:00:00.000Z', 'Europe/London', new Date('2026-10-01T00:00:00Z'), new Date('2026-10-24T00:00:00Z'))
+    const novSlots = occurrencesBetween('FREQ=WEEKLY', '2026-06-03T13:00:00.000Z', 'Europe/London', new Date('2026-11-01T00:00:00Z'), new Date('2026-11-30T00:00:00Z'))
+    check('recurrence holds 14:00 London wall time before the clock change', octSlots.length > 0 && octSlots.every((d) => d.toISOString().endsWith('T13:00:00.000Z')))
+    check('recurrence holds 14:00 London wall time after the clock change', novSlots.length > 0 && novSlots.every((d) => d.toISOString().endsWith('T14:00:00.000Z')))
+    check('instantFromWall inverts wall-time conversion across DST', instantFromWall({ y: 2026, mo: 11, d: 4, h: 14, mi: 0, s: 0 }, 'Europe/London').toISOString() === '2026-11-04T14:00:00.000Z' && instantFromWall({ y: 2026, mo: 6, d: 3, h: 14, mi: 0, s: 0 }, 'Europe/London').toISOString() === '2026-06-03T13:00:00.000Z')
+    check('floating conversion carries wall components', floatingFromInstant(new Date('2026-06-03T13:00:00.000Z'), 'Europe/London').toISOString() === '2026-06-03T14:00:00.000Z')
+    const capped = capRuleBefore('FREQ=WEEKLY;INTERVAL=2', 'Europe/London', '2026-11-04T14:00:00.000Z')
+    check('capRuleBefore preserves the interval while capping', capped.includes('INTERVAL=2') && capped.includes('UNTIL='))
+    check('a capped rule stops before the cut', occurrencesBetween(capped, '2026-06-03T13:00:00.000Z', 'Europe/London', new Date('2026-11-01T00:00:00Z'), new Date('2027-01-01T00:00:00Z')).length === 0)
+    check('shiftInstantByWallDelta applies wall minutes across the boundary', shiftInstantByWallDelta('2026-11-04T14:00:00.000Z', 'Europe/London', '2026-06-03T13:00:00.000Z', '2026-06-03T13:30:00.000Z') === '2026-11-04T14:30:00.000Z')
+
+    const londonCall = createEvent({ title: 'Client call', start: '2026-06-03T13:00:00.000Z', end: '2026-06-03T14:00:00.000Z', recurrenceRule: 'FREQ=WEEKLY', tz: 'Europe/London' })
+    const novCalls = expandEvents('2026-11-01T00:00:00.000Z', '2026-11-15T00:00:00.000Z', null).filter((o) => o.masterId === londonCall.id)
+    check('expandEvents keeps the event at 14:00 London after DST', novCalls.length === 2 && novCalls.every((o) => o.occurrenceStart.endsWith('T14:00:00.000Z')))
+    check('a stored event reports its timezone', getEvent(londonCall.id)?.tz === 'Europe/London')
+
+    // Completing one occurrence records that occurrence's own end — 0.1.0
+    // copied the series' first-ever end, so a completed February slot of a
+    // January series "ended" weeks before it started.
+    setOccurrenceCompleted(londonCall.id, novCalls[0].occurrenceStart, true)
+    const completedCall = expandEvents('2026-11-01T00:00:00.000Z', '2026-11-15T00:00:00.000Z', null).find((o) => o.masterId === londonCall.id && o.completed)
+    check('completed occurrence keeps its own end time', completedCall != null && completedCall.end === new Date(new Date(completedCall.occurrenceStart).getTime() + 3_600_000).toISOString())
+
+    // Series edits keep exceptions attached. Cancel one slot, move the whole
+    // series 30 wall-minutes: the cancellation must move with it, not detach
+    // and resurrect (the 0.1.0 behaviour). Changing the rule itself drops the
+    // now-meaningless exceptions deliberately.
+    const shifty = createEvent({ title: 'Shifty', start: '2026-06-03T13:00:00.000Z', end: '2026-06-03T14:00:00.000Z', recurrenceRule: 'FREQ=WEEKLY', tz: 'Europe/London' })
+    cancelOccurrence(shifty.id, '2026-11-04T14:00:00.000Z')
+    check('cancelled slot is skipped before the series edit', !expandEvents('2026-11-01T00:00:00.000Z', '2026-11-08T00:00:00.000Z', null).some((o) => o.masterId === shifty.id))
+    updateEvent(shifty.id, { title: 'Shifty', start: '2026-06-03T13:30:00.000Z', end: '2026-06-03T14:30:00.000Z', recurrenceRule: 'FREQ=WEEKLY', tz: 'Europe/London' })
+    check('cancelled slot stays cancelled after the series start moves', !expandEvents('2026-11-01T00:00:00.000Z', '2026-11-08T00:00:00.000Z', null).some((o) => o.masterId === shifty.id))
+    check('other occurrences shifted with the series', expandEvents('2026-11-08T00:00:00.000Z', '2026-11-15T00:00:00.000Z', null).some((o) => o.masterId === shifty.id && o.occurrenceStart === '2026-11-11T14:30:00.000Z'))
+    updateEvent(shifty.id, { title: 'Shifty', start: '2026-06-03T13:30:00.000Z', end: '2026-06-03T14:30:00.000Z', recurrenceRule: 'FREQ=DAILY', tz: 'Europe/London' })
+    check('a rule change drops the exception children', (getDb().prepare('SELECT count(*) AS n FROM events WHERE recurrence_parent_id = ?').get(shifty.id) as { n: number }).n === 0)
+
+    // Range intersection: events that *overlap* the window show, not only
+    // those that *start* in it. An overnight session shows on both days.
+    const overnight = createEvent({ title: 'Overnight prep', start: '2026-08-10T23:00:00.000Z', end: '2026-08-11T01:00:00.000Z' })
+    check('an overnight event appears in the next day\'s window', expandEvents('2026-08-11T00:00:00.000Z', '2026-08-11T23:59:59.000Z', null).some((o) => o.masterId === overnight.id))
+    const lateDaily = createEvent({ title: 'Late daily', start: '2026-08-01T23:30:00.000Z', end: '2026-08-02T00:30:00.000Z', recurrenceRule: 'FREQ=DAILY', tz: 'UTC' })
+    check('a recurring occurrence spanning the window start is found', expandEvents('2026-08-05T00:00:00.000Z', '2026-08-05T12:00:00.000Z', null).some((o) => o.masterId === lateDaily.id && o.occurrenceStart === '2026-08-04T23:30:00.000Z'))
+
+    // deleteEvent cleans its cross-links (they previously lingered forever).
+    const linkedEvent = createEvent({ title: 'Linked hearing', start: '2026-09-01T09:00:00.000Z' })
+    const linkedPage = createPage({ title: 'Hearing notes' })
+    createLink('event', linkedEvent.id, 'knowledge', linkedPage.id)
+    deleteEvent(linkedEvent.id)
+    check('deleting an event removes its links', listBacklinks('knowledge', linkedPage.id).length === 0)
+    deletePage(linkedPage.id)
+
+    // The archived shelf: archiving hides a task from the list and search but
+    // keeps it reachable through listArchivedTasks, and unarchive restores it.
+    // 0.1.0 had the boolean with no read path — a one-way trapdoor.
+    const shelfSpace = createSpace({ name: 'Shelf' })
+    const shelfTask = createTask({ spaceId: shelfSpace.id, title: 'Old matter' })
+    updateTask(shelfTask.id, { archived: true })
+    check('archived task leaves the active list', !listTasks(shelfSpace.id).some((t) => t.id === shelfTask.id))
+    check('archived task appears on the shelf', listArchivedTasks(shelfSpace.id).some((t) => t.id === shelfTask.id))
+    updateTask(shelfTask.id, { archived: false })
+    check('unarchive restores the task to the list', listTasks(shelfSpace.id).some((t) => t.id === shelfTask.id))
+
+    // Migration 008's status cleanup: status-'Archived' tasks convert to the
+    // boolean and 'Archived' leaves every status set, with 'Done' guaranteed.
+    getDb().prepare("UPDATE tasks SET status = 'Archived' WHERE id = ?").run(shelfTask.id)
+    getDb().prepare("UPDATE spaces SET preferences = json_set(COALESCE(preferences, '{}'), '$.statusSet', json(?)) WHERE id = ?").run(JSON.stringify(['To start', 'Archived']), shelfSpace.id)
+    normalizeArchivedStatuses(getDb())
+    const normalizedTask = getTask(shelfTask.id)
+    check('status-Archived converts to the archived boolean', normalizedTask?.archived === true && normalizedTask?.status === null)
+    const normalizedSet = getSpaceDetail(shelfSpace.id).statusSet
+    check('status sets lose Archived and keep Done', !normalizedSet.includes('Archived') && normalizedSet.includes('Done'))
+    check('universal statuses no longer offer Archived', !UNIVERSAL_STATUSES.includes('Archived'))
+    check('every preset status set includes Done', PRESETS.every((pr) => pr.statuses.includes('Done')))
+
+    // completed_at + billing month attribution: a Done transition stamps the
+    // task; fixed-price work counts once, in that month; a fixed-price task
+    // with no tracked time still appears in the report. 0.1.0 re-counted the
+    // full price in every month with a time entry and hid untracked tasks.
+    const firmSpace = createSpace({ name: 'Firm' })
+    setSpaceBilling(firmSpace.id, { mode: 'job', rate: 5000 })
+    const fixedFee = createTask({ spaceId: firmSpace.id, title: 'Fixed-fee matter' })
+    check('completed_at starts null', getTask(fixedFee.id)?.completedAt === null)
+    updateTask(fixedFee.id, { status: 'Done' })
+    check('entering Done stamps completed_at', getTask(fixedFee.id)?.completedAt !== null)
+    updateTask(fixedFee.id, { status: 'To start' })
+    check('leaving Done clears completed_at', getTask(fixedFee.id)?.completedAt === null)
+    updateTask(fixedFee.id, { status: 'Done' })
+    getDb().prepare('UPDATE tasks SET completed_at = ? WHERE id = ?').run('2026-06-15T10:00:00.000Z', fixedFee.id)
+    const firmReport = timeReport({ spaceId: firmSpace.id })
+    const fixedRow = firmReport.find((r) => r.taskId === fixedFee.id)
+    check('an untracked fixed-price task appears in the report', fixedRow != null && fixedRow.weekStart === null && fixedRow.minutes === 0 && fixedRow.billingMode === 'job')
+    check('report rows carry completed_at', fixedRow?.completedAt === '2026-06-15T10:00:00.000Z')
+    const juneW = ['2026-06-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'] as const
+    const julyW = ['2026-07-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z'] as const
+    check('fixed price counts in its completion month', computeWindowAmount('job', 5000, null, 0, '2026-06-15T10:00:00.000Z', juneW[0], juneW[1]) === 5000)
+    check('fixed price does not double-count in other months', computeWindowAmount('job', 5000, null, 240, '2026-06-15T10:00:00.000Z', julyW[0], julyW[1]) === null)
+    check('an incomplete fixed-price task adds nothing to a month', computeWindowAmount('job', 5000, null, 240, null, juneW[0], juneW[1]) === null)
+    check('all-time still counts fixed price regardless of completion', computeWindowAmount('job', 5000, null, 0, null, null, null) === 5000)
+    check('time-based billing is unaffected by completion month', computeWindowAmount('time', 60, null, 90, null, juneW[0], juneW[1]) === 90)
+
+    // saveNote is an upsert with a throttled activity entry — a minute of
+    // autosaves previously wrote a delete/insert churn plus one 'note
+    // updated' row per flush.
+    saveNote(fixedFee.id, pmDoc('draft 1') as never)
+    saveNote(fixedFee.id, pmDoc('draft 2') as never)
+    check('saveNote keeps a single note row', (getDb().prepare('SELECT count(*) AS n FROM task_notes WHERE task_id = ?').get(fixedFee.id) as { n: number }).n === 1)
+    check('note autosaves throttle their activity entries', (getDb().prepare("SELECT count(*) AS n FROM activity_log WHERE item_type = 'task' AND item_id = ? AND action = 'note updated'").get(fixedFee.id) as { n: number }).n === 1)
+    check('the surviving note is the latest save', pmText(getNote(fixedFee.id) as never) === 'draft 2')
+
+    // deleteTask removes its activity rows (they previously fed the home feed
+    // as permanent orphans) — and the feed itself resolves titles.
+    const feedRows = listActivity(50)
+    check('activity entries resolve their task titles', feedRows.some((a) => a.itemId === fixedFee.id && a.title === 'Fixed-fee matter' && a.spaceName === 'Firm'))
+    deleteTask(fixedFee.id)
+    check('deleting a task clears its activity rows', (getDb().prepare("SELECT count(*) AS n FROM activity_log WHERE item_type = 'task' AND item_id = ?").get(fixedFee.id) as { n: number }).n === 0)
+
+    // Spaces stopped being immutable: rename (with duplicate auto-suffix),
+    // cheatsheet and status edits (Done pinned), archive round-trip, and a
+    // full-cascade delete.
+    const dupe = createSpace({ name: 'Firm' })
+    check('duplicate space names auto-suffix', dupe.name === 'Firm 2')
+    updateSpace(dupe.id, { name: 'Chambers', cheatsheet: 'Counsel notes', statusSet: ['Open', 'Closed'] })
+    const editedSpace = getSpaceDetail(dupe.id)
+    check('updateSpace renames and writes the cheatsheet', editedSpace.name === 'Chambers' && editedSpace.cheatsheet === 'Counsel notes')
+    check('status edits always keep Done', editedSpace.statusSet.join('|') === 'Open|Closed|Done')
+    archiveSpace(dupe.id, true)
+    check('archived space leaves the home list', !listSpaces().some((sp) => sp.id === dupe.id))
+    check('archived space appears in the archived list', listArchivedSpaces().some((sp) => sp.id === dupe.id))
+    archiveSpace(dupe.id, false)
+    check('unarchive restores the space', listSpaces().some((sp) => sp.id === dupe.id))
+
+    const doomed = createSpace({ name: 'Doomed' })
+    const doomedTask = createTask({ spaceId: doomed.id, title: 'Doomed task' })
+    addSubtask(doomedTask.id, 'Doomed subtask')
+    addTimeEntry({ taskId: doomedTask.id, startAt: '2026-06-01T12:00:00.000Z', duration: 30 })
+    const doomedTag = createTag(doomed.id, 'doom', null)
+    addTag(doomedTask.id, doomedTag.id)
+    const doomedEvent = createEvent({ title: 'Doomed event', start: '2026-06-02T09:00:00.000Z', spaceId: doomed.id, recurrenceRule: 'FREQ=DAILY', tz: 'UTC' })
+    cancelOccurrence(doomedEvent.id, '2026-06-03T09:00:00.000Z')
+    createUrlItem(doomed.id, 'Doomed link', 'example.com')
+    deleteSpace(doomed.id)
+    const countIn = (sql: string, id: number): number => (getDb().prepare(sql).get(id) as { n: number }).n
+    check('deleteSpace removes its tasks and their satellites',
+      countIn('SELECT count(*) AS n FROM tasks WHERE space_id = ?', doomed.id) === 0 &&
+      countIn('SELECT count(*) AS n FROM subtasks WHERE task_id = ?', doomedTask.id) === 0 &&
+      countIn('SELECT count(*) AS n FROM time_entries WHERE task_id = ?', doomedTask.id) === 0 &&
+      countIn('SELECT count(*) AS n FROM tags WHERE space_id = ?', doomed.id) === 0)
+    check('deleteSpace removes its events, exceptions, and launcher items',
+      countIn('SELECT count(*) AS n FROM events WHERE space_id = ?', doomed.id) === 0 &&
+      countIn('SELECT count(*) AS n FROM events WHERE recurrence_parent_id = ?', doomedEvent.id) === 0 &&
+      countIn('SELECT count(*) AS n FROM launcher_items WHERE space_id = ?', doomed.id) === 0)
+
+    // Files gained rename and delete; dedup honours the newest display name.
+    const fSrc = join(paths.root, 'selftest-brief.txt')
+    writeFileSync(fSrc, 'grounds of appeal')
+    const brief = ingestFile(fSrc, 'brief-v1.txt')
+    const rededup = ingestFile(fSrc, 'brief-final.txt')
+    check('re-ingesting identical bytes keeps one record but takes the new name', rededup.id === brief.id && getFile(brief.id)?.name === 'brief-final.txt')
+    renameFile(brief.id, 'skeleton-argument')
+    check('rename without an extension keeps the old mime', getFile(brief.id)?.name === 'skeleton-argument' && getFile(brief.id)?.mime === 'text/plain')
+    const briefTaskSpace = createSpace({ name: 'Files' })
+    const briefTask = createTask({ spaceId: briefTaskSpace.id, title: 'Appeal' })
+    linkFile(briefTask.id, brief.id)
+    createAnnotation({ fileId: brief.id, page: 1, type: 'note', content: 'check citation' })
+    const briefBlob = join(paths.uploads, brief.hash)
+    deleteFile(brief.id)
+    check('deleteFile removes the record, references, and blob',
+      getFile(brief.id) === null &&
+      listTaskFiles(briefTask.id).length === 0 &&
+      listAnnotations(brief.id).length === 0 &&
+      !readFileExists(briefBlob))
+
+    // Launcher URLs are http(s)-only now — any other scheme was previously
+    // stored verbatim and handed to shell.openExternal.
+    check('normalizeUrl still prefixes bare domains', normalizeUrl('gov.uk') === 'https://gov.uk')
+    let ftpRejected = false
+    try {
+      normalizeUrl('ftp://files.example.com')
+    } catch {
+      ftpRejected = true
+    }
+    check('normalizeUrl rejects non-http schemes', ftpRejected)
+
+    // One CSV parser everywhere: quoted commas, escaped quotes, CRLF — the
+    // print path previously split on raw commas and mangled all three.
+    const csvRows = parseCsv('name,note\r\n"Smith, J","said ""ok""\nthen left"\r\n')
+    check('shared CSV parser handles quoted commas, quotes, and newlines', csvRows.length === 2 && csvRows[1][0] === 'Smith, J' && csvRows[1][1] === 'said "ok"\nthen left')
+
+    // The login password can finally rotate: rekey re-encrypts in place, a
+    // wrong current password is refused, and the new password unlocks after
+    // a close. (Rotated back so the final teardown checks still apply.)
+    check('rekey refuses a wrong current password', rekeyDatabase('not-the-password', 'x') === false)
+    check('rekey succeeds with the right password', rekeyDatabase('self-test-password', 'rotated-password') === true)
+    closeDatabase()
+    check('the old password no longer unlocks after rekey', !unlockDatabase('self-test-password'))
+    check('the new password unlocks after rekey', unlockDatabase('rotated-password'))
+    check('rekey back for teardown', rekeyDatabase('rotated-password', 'self-test-password') === true)
 
     // Legal documents + onboarding (Part 13). The bundled text parses into the
     // three expected documents, both versions of each survive verbatim, and the

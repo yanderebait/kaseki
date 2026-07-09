@@ -1,7 +1,9 @@
 import { getDb } from './connection'
 import { UNIVERSAL_STATUSES, getPreset } from '../../shared/presets'
 import { seedLauncher } from './launcher'
-import type { BillingMode, NewSpace, Space, SpaceBilling, SpaceDetail } from '../../shared/types'
+import { deleteTask } from './tasks'
+import { log } from '../logger'
+import type { BillingMode, NewSpace, Space, SpaceBilling, SpaceDetail, SpaceEdit } from '../../shared/types'
 
 const VALID_BILLING_MODES: BillingMode[] = ['time', 'job', 'unit', 'none']
 
@@ -37,6 +39,31 @@ export function getSpace(id: number): Space {
 // since Appendix C has no table for them), custom fields go in the real
 // custom_field_definitions table. A bare space (Phase 1 path) defaults to
 // the universal status set.
+// Two spaces with the same name are legal in the schema but hostile in every
+// picker (Cmd+1-9, search, the home grid all show identical labels), so a
+// duplicate gets a numeric suffix: 'Immigration', 'Immigration 2', …
+function uniqueSpaceName(name: string): string {
+  const db = getDb()
+  const taken = new Set(
+    (db.prepare('SELECT name FROM spaces').all() as Array<{ name: string }>).map((r) =>
+      r.name.trim().toLowerCase()
+    )
+  )
+  const base = name.trim() || 'Untitled space'
+  if (!taken.has(base.toLowerCase())) return base
+  for (let n = 2; ; n++) {
+    const candidate = `${base} ${n}`
+    if (!taken.has(candidate.toLowerCase())) return candidate
+  }
+}
+
+// 'Done' anchors the app's completion logic (the complete toggle, active
+// counts, dependency blocking), so a status set is never stored without it.
+function withDone(statusSet: string[]): string[] {
+  const cleaned = statusSet.map((x) => x.trim()).filter(Boolean)
+  return cleaned.includes('Done') ? cleaned : [...cleaned, 'Done']
+}
+
 export function createSpace(input: NewSpace): Space {
   const db = getDb()
   const run = db.transaction((spec: NewSpace): number => {
@@ -48,7 +75,7 @@ export function createSpace(input: NewSpace): Space {
     // custom-built space defaults to 'none' (no billing).
     const preset = spec.presetId ? getPreset(spec.presetId) : undefined
     const preferences = JSON.stringify({
-      statusSet: spec.statusSet ?? UNIVERSAL_STATUSES,
+      statusSet: withDone(spec.statusSet ?? UNIVERSAL_STATUSES),
       cheatsheet: spec.cheatsheet ?? '',
       billing: { mode: preset?.billing ?? 'none', rate: null }
     })
@@ -57,7 +84,14 @@ export function createSpace(input: NewSpace): Space {
         `INSERT INTO spaces (name, accent_color, icon, position, preset_id, preferences)
          VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(spec.name, spec.accentColor ?? null, spec.icon ?? null, pos, spec.presetId ?? null, preferences)
+      .run(
+        uniqueSpaceName(spec.name),
+        spec.accentColor ?? null,
+        spec.icon ?? null,
+        pos,
+        spec.presetId ?? null,
+        preferences
+      )
     const spaceId = Number(result.lastInsertRowid)
     if (spec.fields?.length) {
       const insert = db.prepare(
@@ -102,7 +136,9 @@ export function getSpaceDetail(id: number): SpaceDetail {
       type: f.type,
       options: f.options ? (JSON.parse(f.options) as string[]) : undefined
     })),
-    statusSet: Array.isArray(prefs.statusSet) ? (prefs.statusSet as string[]) : UNIVERSAL_STATUSES,
+    statusSet: Array.isArray(prefs.statusSet)
+      ? withDone(prefs.statusSet.filter((x): x is string => typeof x === 'string'))
+      : UNIVERSAL_STATUSES,
     cheatsheet: typeof prefs.cheatsheet === 'string' ? prefs.cheatsheet : '',
     billing: readBilling(prefs.billing)
   }
@@ -134,4 +170,75 @@ export function setSpaceBilling(spaceId: number, billing: SpaceBilling): void {
      SET preferences = json_set(COALESCE(preferences, '{}'), '$.billing', json(?))
      WHERE id = ?`
   ).run(JSON.stringify({ mode, rate }), spaceId)
+}
+
+// Spaces stopped being immutable in v0.2.0 — a typo in a name was previously
+// permanent, and the cheatsheet had no write path at all. Absent fields stay
+// untouched; the name is re-uniquified only when it actually changes.
+export function updateSpace(id: number, patch: SpaceEdit): void {
+  const db = getDb()
+  db.transaction(() => {
+    const current = db.prepare('SELECT name FROM spaces WHERE id = ?').get(id) as
+      | { name: string }
+      | undefined
+    if (!current) return
+    if (patch.name !== undefined && patch.name.trim() !== current.name) {
+      db.prepare('UPDATE spaces SET name = ? WHERE id = ?').run(uniqueSpaceName(patch.name), id)
+    }
+    if (patch.accentColor !== undefined) {
+      db.prepare('UPDATE spaces SET accent_color = ? WHERE id = ?').run(patch.accentColor, id)
+    }
+    if (patch.icon !== undefined) {
+      db.prepare('UPDATE spaces SET icon = ? WHERE id = ?').run(patch.icon, id)
+    }
+    if (patch.cheatsheet !== undefined) {
+      db.prepare(
+        "UPDATE spaces SET preferences = json_set(COALESCE(preferences, '{}'), '$.cheatsheet', ?) WHERE id = ?"
+      ).run(patch.cheatsheet, id)
+    }
+    if (patch.statusSet !== undefined) {
+      db.prepare(
+        "UPDATE spaces SET preferences = json_set(COALESCE(preferences, '{}'), '$.statusSet', json(?)) WHERE id = ?"
+      ).run(JSON.stringify(withDone(patch.statusSet)), id)
+    }
+  })()
+}
+
+// Archive hides a space from the home grid and pickers; everything in it is
+// kept and it can be unarchived from Settings → Spaces.
+export function archiveSpace(id: number, archived: boolean): void {
+  getDb().prepare('UPDATE spaces SET archived = ? WHERE id = ?').run(archived ? 1 : 0, id)
+}
+
+export function listArchivedSpaces(): Space[] {
+  return getDb()
+    .prepare(`${SELECT_SPACE} WHERE s.archived = 1 ORDER BY s.position`)
+    .all() as Space[]
+}
+
+// Hard delete: the space and everything scoped to it. Tasks go through
+// deleteTask so each one's full manual cascade (subtasks, values, tags,
+// notes, time entries, dependencies, file links, activity) runs; then the
+// space-scoped tables. Launcher icon files on disk are cleaned by the caller
+// (main/launcherActions) which knows the icon directory.
+export function deleteSpace(id: number): void {
+  const db = getDb()
+  db.transaction(() => {
+    const tasks = db.prepare('SELECT id FROM tasks WHERE space_id = ?').all(id) as Array<{ id: number }>
+    for (const t of tasks) deleteTask(t.id)
+    const events = db.prepare('SELECT id FROM events WHERE space_id = ?').all(id) as Array<{ id: number }>
+    for (const e of events) {
+      db.prepare('DELETE FROM events WHERE recurrence_parent_id = ?').run(e.id)
+      db.prepare(
+        "DELETE FROM links WHERE (source_type = 'event' AND source_id = ?) OR (target_type = 'event' AND target_id = ?)"
+      ).run(e.id, e.id)
+    }
+    db.prepare('DELETE FROM events WHERE space_id = ?').run(id)
+    db.prepare('DELETE FROM launcher_items WHERE space_id = ?').run(id)
+    db.prepare('DELETE FROM custom_field_definitions WHERE space_id = ?').run(id)
+    db.prepare('DELETE FROM tags WHERE space_id = ?').run(id)
+    db.prepare('DELETE FROM task_templates WHERE space_id = ?').run(id)
+    db.prepare('DELETE FROM spaces WHERE id = ?').run(id)
+  })()
+  log.info('Space deleted', { id })
 }

@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog } from 'electron'
 import { writeFileSync } from 'node:fs'
+import { log } from './logger'
 import { exportIcs } from './ics'
 import { getSpace } from './db/spaces'
 
@@ -31,6 +32,13 @@ export async function saveIcs(spaceId: number | null): Promise<{ ok: boolean }> 
     ? await dialog.showSaveDialog(win, options)
     : await dialog.showSaveDialog(options)
   if (result.canceled || !result.filePath) return { ok: false }
-  writeFileSync(result.filePath, ics)
+  try {
+    writeFileSync(result.filePath, ics)
+  } catch (error) {
+    // A failed write (permissions, disk full, network share gone) previously
+    // rejected the IPC promise and surfaced nowhere in the UI.
+    log.error('ICS export write failed', error)
+    return { ok: false }
+  }
   return { ok: true }
 }

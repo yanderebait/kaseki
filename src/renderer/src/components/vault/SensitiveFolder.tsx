@@ -6,19 +6,48 @@ import VaultSetup from './VaultSetup'
 import VaultUnlock from './VaultUnlock'
 import VaultBrowser from './VaultBrowser'
 import VaultViewer from './VaultViewer'
+import { useEscapeLayer } from '../../hooks/useEscapeLayer'
 
 // The sensitive folder overlay (Part 11): a full-screen surface that shows
 // setup (no vault yet), the passcode prompt (locked), or the file browser
 // (unlocked), driven by the vault's status. Cmd+L locks immediately.
-export default function SensitiveFolder({ onClose }: { onClose: () => void }): React.JSX.Element {
+export default function SensitiveFolder({
+  onClose,
+  initialFileId
+}: {
+  onClose: () => void
+  // A vault search hit deep-links straight to its file once unlocked —
+  // 0.1.0 opened the folder and left the user to find the file themselves.
+  initialFileId?: number
+}): React.JSX.Element {
   const [status, setStatus] = useState<VaultStatus | null>(null)
   const [viewing, setViewing] = useState<VaultFile | null>(null)
+  const [pendingFileId, setPendingFileId] = useState<number | null>(initialFileId ?? null)
   const { flash } = useOrb()
+
+  useEffect(() => {
+    if (status !== 'unlocked' || pendingFileId == null) return
+    window.kaseki.vault.get(pendingFileId).then((f) => {
+      if (f) setViewing(f)
+    })
+    setPendingFileId(null)
+  }, [status, pendingFileId])
 
   const refresh = useCallback(() => window.kaseki.vault.status().then(setStatus), [])
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  // Track lock-state changes pushed from the main process — most importantly
+  // the inactivity auto-lock, which this surface previously had no way to
+  // see: it kept showing the unlocked browser (and any open decrypted
+  // document) over a vault that had already locked.
+  useEffect(() => {
+    return window.kaseki.vault.onChanged((next) => {
+      setStatus(next)
+      if (next !== 'unlocked') setViewing(null)
+    })
+  }, [])
 
   const onUnlocked = useCallback(() => {
     flash('unlocked')
@@ -31,17 +60,18 @@ export default function SensitiveFolder({ onClose }: { onClose: () => void }): R
     window.kaseki.vault.lock().then(refresh)
   }, [flash, refresh])
 
+  useEscapeLayer(true, onClose)
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l') {
         e.preventDefault()
         lock()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, lock])
+  }, [lock])
 
   return (
     <div className="vault">

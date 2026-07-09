@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 
 // The modifier reads as ⌘ on macOS, Ctrl elsewhere — the handlers accept both
 // (metaKey || ctrlKey), so this is purely how we label them.
@@ -79,13 +79,7 @@ export function ShortcutsList(): React.JSX.Element {
 
 export default function ShortcutsHelp({ onClose }: { onClose: () => void }): React.JSX.Element {
   const trapRef = useFocusTrap<HTMLDivElement>()
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer(true, onClose)
 
   return (
     <div className="modal-backdrop" onClick={onClose}>

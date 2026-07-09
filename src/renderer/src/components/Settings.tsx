@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
-import type { BillingMode, Preferences, SpaceBilling, SpaceDetail, VaultStatus } from '../../../shared/types'
+import { useCallback, useEffect, useState } from 'react'
+import type { BillingMode, Preferences, Space, SpaceBilling, SpaceDetail, VaultStatus } from '../../../shared/types'
 import { BILLING_LABELS, BILLING_MODES, RATE_LABELS } from '../../../shared/billing'
 import { useTheme } from '../theme'
 import { useOrb, type OrbIntensity } from '../orbState'
 import { FONT_SCALES } from '../appearance'
 import { ACCENTS } from '../accents'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import LegalModal from './legal/LegalModal'
 import { ShortcutsList } from './ShortcutsHelp'
 
@@ -39,13 +40,7 @@ export default function Settings({
   const [selected, setSelected] = useState(initial)
   const trapRef = useFocusTrap<HTMLDivElement>()
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer(true, onClose)
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -171,17 +166,37 @@ function ShortcutsPane(): React.JSX.Element {
 // archive, reorder) lands in a later pass. A task can override the default.
 function SpacesPane(): React.JSX.Element {
   const [spaces, setSpaces] = useState<SpaceDetail[]>([])
+  const [archived, setArchived] = useState<Space[]>([])
   const [currency, setCurrency] = useState('£')
+
+  const reload = useCallback(() => {
+    window.kaseki.spaces.list().then(async (list) => {
+      const details = await Promise.all(list.map((s) => window.kaseki.spaces.get(s.id)))
+      setSpaces(details)
+    })
+    window.kaseki.spaces.listArchived().then(setArchived)
+  }, [])
 
   useEffect(() => {
     window.kaseki.prefs.get().then((p) => {
       if (typeof p.currency === 'string' && p.currency) setCurrency(p.currency)
     })
-    window.kaseki.spaces.list().then(async (list) => {
-      const details = await Promise.all(list.map((s) => window.kaseki.spaces.get(s.id)))
-      setSpaces(details)
-    })
-  }, [])
+    reload()
+  }, [reload])
+
+  async function unarchive(id: number): Promise<void> {
+    await window.kaseki.spaces.archive(id, false)
+    reload()
+  }
+
+  async function destroy(space: Space): Promise<void> {
+    const typed = window.prompt(
+      `Permanently delete “${space.name}” and everything in it — tasks, events, notes, time entries? Type the space name to confirm.`
+    )
+    if (typed !== space.name) return
+    await window.kaseki.spaces.delete(space.id)
+    reload()
+  }
 
   function update(spaceId: number, billing: SpaceBilling): void {
     setSpaces((ss) => ss.map((s) => (s.id === spaceId ? { ...s, billing } : s)))
@@ -192,7 +207,9 @@ function SpacesPane(): React.JSX.Element {
     <div className="settings-section">
       <h2 className="settings-heading">Profession spaces</h2>
       <p className="hint">
-        Each space’s default billing pattern. A task can override it; full space management arrives later.
+        Each space’s default billing pattern (a task can override it). Rename, recolour, and edit a
+        space from its dashboard — the gear in the header. Archived spaces can be restored or
+        permanently deleted below.
       </p>
       <div className="space-billing-list">
         {spaces.map((s) => (
@@ -237,12 +254,109 @@ function SpacesPane(): React.JSX.Element {
         ))}
         {spaces.length === 0 && <p className="hint">No spaces yet.</p>}
       </div>
+      {archived.length > 0 && (
+        <>
+          <span className="setting-block-title">Archived spaces</span>
+          <div className="space-billing-list">
+            {archived.map((a) => (
+              <div key={a.id} className="space-billing-row">
+                <span className="space-billing-name">
+                  <span
+                    className="space-billing-dot"
+                    style={{ background: a.accentColor ?? 'var(--accent)' }}
+                  />
+                  {a.name}
+                </span>
+                <button type="button" className="settings-inline-btn" onClick={() => unarchive(a.id)}>
+                  Unarchive
+                </button>
+                <button
+                  type="button"
+                  className="settings-inline-btn danger"
+                  onClick={() => destroy(a)}
+                >
+                  Delete…
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
 
 // General (Part 14 #1): theme, font scale, and the task detail panel width
 // (Part 8). Theme offers OS-auto; font scale is the accessibility multiplier.
+// Login (database) password change — new in v0.2.0; the master password was
+// previously set once at account creation and could never be rotated.
+function PasswordChange(): React.JSX.Element {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  const mismatched = confirm.length > 0 && next !== confirm
+  const ready = current.length > 0 && next.length > 0 && next === confirm && !busy
+
+  async function submit(): Promise<void> {
+    if (!ready) return
+    setBusy(true)
+    setMessage(null)
+    try {
+      const result = await window.kaseki.auth.changePassword(current, next)
+      setFailed(!result.ok)
+      setMessage(result.ok ? 'Password changed.' : (result.error ?? 'Could not change the password.'))
+      if (result.ok) {
+        setCurrent('')
+        setNext('')
+        setConfirm('')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="setting-block">
+      <span className="setting-block-title">Login password</span>
+      <p className="hint">
+        Re-encrypts the database under a new password. You’ll use it from the next unlock.
+      </p>
+      <div className="form-stack">
+        <input
+          type="password"
+          placeholder="Current password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          autoComplete="current-password"
+        />
+        <input
+          type="password"
+          placeholder="New password"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          autoComplete="new-password"
+        />
+        <input
+          type="password"
+          placeholder="Confirm new password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          autoComplete="new-password"
+        />
+        {mismatched && <p className="form-error">Passwords don’t match.</p>}
+        {message && <p className={failed ? 'form-error' : 'hint'}>{message}</p>}
+        <button type="button" className="primary" disabled={!ready} onClick={submit}>
+          {busy ? 'Changing…' : 'Change password'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function GeneralPane(): React.JSX.Element {
   const { theme, setTheme, fontScale, setFontScale } = useTheme()
   const [slideoutWidth, setSlideoutWidth] = useState(60)
@@ -326,6 +440,7 @@ function GeneralPane(): React.JSX.Element {
           aria-label="Currency symbol"
         />
       </div>
+      <PasswordChange />
     </div>
   )
 }

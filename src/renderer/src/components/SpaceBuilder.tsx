@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import { ACCENTS } from '../accents'
 import { CatalogIcon, ICON_GROUPS } from '../iconCatalog'
 import { UNIVERSAL_STATUSES } from '../../../shared/presets'
@@ -29,13 +30,7 @@ export default function SpaceBuilder({
   const [statuses, setStatuses] = useState<string[]>(UNIVERSAL_STATUSES)
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer(true, onClose)
 
   function updateField(i: number, patch: Partial<FieldDef>): void {
     setFields((f) => f.map((x, j) => (j === i ? { ...x, ...patch } : x)))
@@ -195,12 +190,17 @@ export default function SpaceBuilder({
 
           <section className="builder-section">
             <span className="builder-section-title">Statuses</span>
+            <p className="hint">
+              ‘Done’ is fixed — completing a task, active counts, and dependency
+              blocking all key on it.
+            </p>
             <div className="status-rows">
               {statuses.map((s, i) => (
                 <div key={i} className="status-row">
                   <input
                     type="text"
                     value={s}
+                    disabled={s === 'Done'}
                     onChange={(e) => setStatuses((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))}
                   />
                   <button
@@ -225,6 +225,7 @@ export default function SpaceBuilder({
                     type="button"
                     className="row-remove"
                     aria-label="Remove status"
+                    disabled={s === 'Done'}
                     onClick={() => setStatuses((arr) => arr.filter((_, j) => j !== i))}
                   >
                     ×

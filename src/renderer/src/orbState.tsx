@@ -154,7 +154,9 @@ export function OrbProvider({ children }: { children: React.ReactNode }): React.
       if (p.orbIntensity === 'subtle' || p.orbIntensity === 'lively') {
         setIntensityState(p.orbIntensity)
       }
-    })
+      // Before login the database is locked and this read rejects; defaults
+      // apply until unlock (same pattern as the theme provider).
+    }).catch(() => {})
   }, [])
 
   // Reflect intensity as the animation-speed multiplier on the document root.

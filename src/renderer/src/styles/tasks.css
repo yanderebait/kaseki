@@ -1271,3 +1271,63 @@
 .reports-week-row td:first-child {
   padding-left: var(--space-3);
 }
+
+/* Archived shelf (v0.2.0) — collapsed by default under the card stack. */
+.task-archived {
+  margin-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px;
+}
+.task-archived-toggle {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.task-archived-toggle:hover {
+  color: var(--text-primary);
+}
+.task-archived-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+.task-archived-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+.task-archived-row:hover {
+  background: var(--bg-tertiary);
+}
+.task-archived-title {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-archived-restore {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.task-archived-restore:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}

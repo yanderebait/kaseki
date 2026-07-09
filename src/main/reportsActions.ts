@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog } from 'electron'
 import { writeFileSync } from 'node:fs'
+import { log } from './logger'
 
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'report'
@@ -16,6 +17,13 @@ export async function exportReportCsv(name: string, csv: string): Promise<{ ok: 
   }
   const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
   if (result.canceled || !result.filePath) return { ok: false }
-  writeFileSync(result.filePath, csv)
+  try {
+    writeFileSync(result.filePath, csv)
+  } catch (error) {
+    // A failed write (permissions, disk full, network share gone) previously
+    // rejected the IPC promise and surfaced nowhere in the UI.
+    log.error('Report CSV write failed', error)
+    return { ok: false }
+  }
   return { ok: true }
 }

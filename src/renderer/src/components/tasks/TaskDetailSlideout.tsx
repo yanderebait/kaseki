@@ -3,6 +3,7 @@ import type { SpaceBilling, TaskDetail, TaskPatch, TaskPriority } from '../../..
 import { useOrb } from '../../orbState'
 import { usePomodoro } from '../../pomodoro'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useEscapeLayer } from '../../hooks/useEscapeLayer'
 import { fmtDuration } from '../../format'
 import { Dots, Pin, Plus, X } from '../../icons'
 import TaskFieldInput from './TaskFieldInput'
@@ -73,13 +74,7 @@ export default function TaskDetailSlideout({
     }
   }, [loggedAt, lastLoggedTaskId, taskId, reload, onChanged])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer(true, onClose)
 
   const patch = useCallback(
     async (p: TaskPatch) => {
@@ -122,8 +117,12 @@ export default function TaskDetailSlideout({
     reload()
   }
 
-  async function archive(): Promise<void> {
-    await window.kaseki.tasks.update(taskId, { archived: true })
+  // Archive and unarchive both live here: an archived task opened from the
+  // archived shelf shows Unarchive instead, so the shelf is a real two-way
+  // door rather than the one-way trapdoor it was in 0.1.0.
+  async function setArchived(archived: boolean): Promise<void> {
+    setMenuOpen(false)
+    await window.kaseki.tasks.update(taskId, { archived })
     onChanged()
     onClose()
   }
@@ -187,8 +186,8 @@ export default function TaskDetailSlideout({
                         <button type="button" onClick={saveAsTemplate}>
                           Save as template
                         </button>
-                        <button type="button" onClick={archive}>
-                          Archive task
+                        <button type="button" onClick={() => setArchived(!detail.archived)}>
+                          {detail.archived ? 'Unarchive task' : 'Archive task'}
                         </button>
                         <button type="button" onClick={remove}>
                           Delete task
@@ -355,9 +354,9 @@ export default function TaskDetailSlideout({
                   </div>
                 </div>
               ) : tab === 'subtasks' ? (
-                <SubtasksTab taskId={taskId} subtasks={detail.subtasks} reload={reload} />
+                <SubtasksTab key={taskId} taskId={taskId} subtasks={detail.subtasks} reload={reload} />
               ) : tab === 'time' ? (
-                <TimeTab taskId={taskId} taskTitle={detail.title} entries={detail.timeEntries} reload={reload} />
+                <TimeTab key={taskId} taskId={taskId} taskTitle={detail.title} entries={detail.timeEntries} reload={reload} />
               ) : tab === 'files' ? (
                 <FilesTab
                   taskId={taskId}

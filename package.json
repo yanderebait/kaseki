@@ -1,6 +1,6 @@
 {
   "name": "kaseki",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A self-hosted, single-user personal life dashboard",
   "author": "yanderebait",
   "license": "AGPL-3.0",
@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "package:win": "electron-vite build && electron-builder --win",
     "package:linux": "electron-vite build && electron-builder --linux",
-    "rebuild:native": "cd node_modules/better-sqlite3-multiple-ciphers && prebuild-install --runtime=electron --target=41.7.2",
+    "rebuild:native": "cd node_modules/better-sqlite3-multiple-ciphers && prebuild-install --runtime=electron --target=$(node -p \"require('electron/package.json').version\")",
     "postinstall": "npm run rebuild:native",
     "selftest": "electron-vite build && KASEKI_DATA_DIR=/tmp/kaseki-selftest KASEKI_SELFTEST=1 electron out/main/index.js",
     "package:win:cross": "bash scripts/package-win-from-linux.sh"
@@ -43,12 +43,5 @@
     "react-dom": "^19.2.7",
     "typescript": "^6.0.3",
     "vite": "^7.3.0"
-  },
-  "allowScripts": {
-    "better-sqlite3-multiple-ciphers@12.10.0": true,
-    "electron@42.4.0": true,
-    "electron-winstaller@5.4.0": true,
-    "esbuild@0.25.12": true,
-    "esbuild@0.27.7": true
   }
 }

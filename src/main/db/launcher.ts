@@ -15,11 +15,17 @@ interface LauncherRow {
   platform: string | null
 }
 
-// Prefixes https:// when the user omits a scheme (Part 6). Kept exported
-// for the self-test.
+// Prefixes https:// when the user omits a scheme, and rejects anything that
+// is not plain http(s) — the launcher previously accepted any scheme
+// (file://, smb://, …) and handed it verbatim to shell.openExternal. Kept
+// exported for the self-test.
 export function normalizeUrl(input: string): string {
   const trimmed = input.trim()
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  if (!/^https?:\/\//i.test(withScheme)) {
+    throw new Error('Only http:// and https:// links can be added to the launcher')
+  }
+  return withScheme
 }
 
 // A URL is always launchable; an app is only available on the platform it

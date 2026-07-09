@@ -5,18 +5,27 @@
 # electron-builder packages it as-is (npmRebuild is off — see
 # electron-builder.yml). So: swap in the win32 prebuild, package, restore.
 # On an actual Windows machine just run `npm run package:win`.
+#
+# v0.2.0: the Electron version, module version, and ABI are all derived from
+# what's actually installed — prebuild-install resolves the ABI itself via
+# node-abi. The previous script hardcoded all three, so the first
+# `npm update` that moved Electron would have desynced them and shipped an
+# installer whose native module fails to load.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 MODULE_DIR=node_modules/better-sqlite3-multiple-ciphers
-PREBUILD_VERSION=12.10.0
-ELECTRON_ABI=145 # Electron 41.x — keep in sync with package.json
-URL="https://github.com/m4heshd/better-sqlite3-multiple-ciphers/releases/download/v${PREBUILD_VERSION}/better-sqlite3-multiple-ciphers-v${PREBUILD_VERSION}-electron-v${ELECTRON_ABI}-win32-x64.tar.gz"
+ELECTRON_VERSION="$(node -p "require('electron/package.json').version")"
 
 cp "$MODULE_DIR/build/Release/better_sqlite3.node" /tmp/bsqlite-host-backup.node
 trap 'cp /tmp/bsqlite-host-backup.node "$MODULE_DIR/build/Release/better_sqlite3.node"' EXIT
 
-curl -sL --fail --retry 3 "$URL" | tar xzf - -C "$MODULE_DIR"
+(cd "$MODULE_DIR" && npx prebuild-install \
+  --runtime=electron \
+  --target="$ELECTRON_VERSION" \
+  --platform=win32 \
+  --arch=x64 \
+  --force)
 npx electron-vite build
 npx electron-builder --win
 echo "Done: dist/Kaseki Setup *.exe (host native module restored)"

@@ -36,14 +36,18 @@ export interface Preset {
 }
 
 // The default statuses available on every task (Part 7). Light presets and
-// the custom builder start from this set.
+// the custom builder start from this set. 'Archived' is gone as of v0.2.0:
+// it duplicated the real archive mechanism (the tasks.archived boolean) while
+// doing none of its work — a status-'Archived' task stayed in the list,
+// counted as active, and kept blocking its dependents. 'Done' is load-bearing
+// (completion toggle, active counts, dependency blocking) and is pinned in
+// every status set.
 export const UNIVERSAL_STATUSES = [
   'To start',
   'In progress',
   'Waiting on update',
   'Awaiting response',
-  'Done',
-  'Archived'
+  'Done'
 ]
 
 // Compact constructor for the light long-tail presets.
@@ -115,7 +119,7 @@ export const PRESETS: Preset[] = [
       { name: 'Opposing counsel', type: 'text' },
       { name: 'Fee arrangement', type: 'select', options: ['Hourly', 'Fixed fee', 'Legal aid', 'CFA'] }
     ],
-    statuses: ['To start', 'In progress', 'Awaiting response', 'Court/Hearing', 'Done', 'Archived'],
+    statuses: ['To start', 'In progress', 'Awaiting response', 'Court/Hearing', 'Done'],
     cheatsheet: [
       'Quick reference',
       '- Section 3C leave lasts 2 months from expiry.',
@@ -152,7 +156,7 @@ export const PRESETS: Preset[] = [
       { name: 'Representative', type: 'text' },
       { name: 'Fee arrangement', type: 'select', options: ['Hourly', 'Fixed fee', 'Legal aid', 'CFA'] }
     ],
-    statuses: ['To start', 'In progress', 'Awaiting Home Office', 'Hearing', 'Done', 'Archived'],
+    statuses: ['To start', 'In progress', 'Awaiting Home Office', 'Hearing', 'Done'],
     cheatsheet: [
       'Quick reference',
       '- 3C leave protects status while an in-time application is pending.',
@@ -208,7 +212,7 @@ export const PRESETS: Preset[] = [
       { name: 'Subject', type: 'text' },
       { name: 'Lesson date', type: 'date' }
     ],
-    statuses: ['To plan', 'Prepared', 'Taught', 'Marked', 'Archived'],
+    statuses: ['To plan', 'Prepared', 'Taught', 'Marked', 'Done'],
     cheatsheet: '',
     suggestedApps: []
   },
@@ -232,7 +236,7 @@ export const PRESETS: Preset[] = [
       { name: 'Ticket reference', type: 'text' },
       { name: 'Target release', type: 'text' }
     ],
-    statuses: ['Backlog', 'In progress', 'In review', 'Blocked', 'Done', 'Archived'],
+    statuses: ['Backlog', 'In progress', 'In review', 'Blocked', 'Done'],
     cheatsheet: '',
     suggestedApps: []
   },
@@ -260,7 +264,7 @@ export const PRESETS: Preset[] = [
       { name: 'Deliverable', type: 'text' },
       { name: 'Deadline', type: 'date' }
     ],
-    statuses: ['To start', 'In progress', 'Awaiting feedback', 'Revisions', 'Done', 'Archived'],
+    statuses: ['To start', 'In progress', 'Awaiting feedback', 'Revisions', 'Done'],
     cheatsheet: '',
     suggestedApps: []
   },
@@ -281,7 +285,7 @@ export const PRESETS: Preset[] = [
       { name: 'Location', type: 'text' },
       { name: 'Deliverables due', type: 'date' }
     ],
-    statuses: ['Enquiry', 'Booked', 'Shot', 'Editing', 'Delivered', 'Archived'],
+    statuses: ['Enquiry', 'Booked', 'Shot', 'Editing', 'Delivered', 'Done'],
     cheatsheet: '',
     suggestedApps: []
   },
@@ -301,7 +305,7 @@ export const PRESETS: Preset[] = [
       { name: 'Word count target', type: 'number' },
       { name: 'Deadline', type: 'date' }
     ],
-    statuses: ['Idea', 'Drafting', 'Editing', 'Submitted', 'Published', 'Archived'],
+    statuses: ['Idea', 'Drafting', 'Editing', 'Submitted', 'Published', 'Done'],
     cheatsheet: '',
     suggestedApps: []
   },
@@ -326,7 +330,7 @@ export const PRESETS: Preset[] = [
       { name: 'Vendor / Landlord', type: 'text' },
       { name: 'Viewing date', type: 'datetime' }
     ],
-    statuses: ['New', 'Listed', 'Viewings', 'Under offer', 'Completed', 'Archived'],
+    statuses: ['New', 'Listed', 'Viewings', 'Under offer', 'Completed', 'Done'],
     cheatsheet: '',
     suggestedApps: []
   },
@@ -354,7 +358,7 @@ export const PRESETS: Preset[] = [
       { name: 'Period end', type: 'date' },
       { name: 'Filing deadline', type: 'date' }
     ],
-    statuses: ['To start', 'In progress', 'Awaiting client', 'Filed', 'Done', 'Archived'],
+    statuses: ['To start', 'In progress', 'Awaiting client', 'Filed', 'Done'],
     cheatsheet: '',
     suggestedApps: []
   },
@@ -384,7 +388,7 @@ export const PRESETS: Preset[] = [
     icon: 'user',
     tier: 'light',
     fields: [],
-    statuses: ['To do', 'In progress', 'Done', 'Archived'],
+    statuses: ['To do', 'In progress', 'Done'],
     cheatsheet: '',
     suggestedApps: []
   }

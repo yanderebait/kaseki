@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Space, Task } from '../../../shared/types'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 
 // Quick capture (Part 15, Shift+N): the fastest way to add a task from
 // anywhere — a title, a space (defaulting to the current one), and an optional
@@ -32,19 +33,22 @@ export default function QuickCapture({
     inputRef.current?.focus()
   }, [])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer(true, onClose)
 
+  const [busy, setBusy] = useState(false)
+
+  // The busy flag makes create idempotent — a double Enter (or Enter plus a
+  // click) previously fired the IPC twice and captured the task twice.
   async function create(): Promise<void> {
     const t = title.trim()
-    if (!t || spaceId == null) return
-    const task = await window.kaseki.tasks.create({ spaceId, title: t, dueDate: due || null })
-    onCreated(task)
+    if (!t || spaceId == null || busy) return
+    setBusy(true)
+    try {
+      const task = await window.kaseki.tasks.create({ spaceId, title: t, dueDate: due || null })
+      onCreated(task)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -86,7 +90,7 @@ export default function QuickCapture({
             type="button"
             className="quick-capture-add"
             onClick={create}
-            disabled={title.trim() === '' || spaceId == null}
+            disabled={title.trim() === '' || spaceId == null || busy}
           >
             Add task
           </button>

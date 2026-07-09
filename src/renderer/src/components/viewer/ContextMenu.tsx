@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEscapeLayer } from '../../hooks/useEscapeLayer'
 
 export interface ContextItem {
   label: string
@@ -19,13 +19,7 @@ export default function ContextMenu({
   items: ContextItem[]
   onClose: () => void
 }): React.JSX.Element {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer(true, onClose)
 
   return (
     <>

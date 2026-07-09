@@ -7,6 +7,7 @@ import type {
 } from '../../../../shared/types'
 import { Book, Download, LinkIcon, Plus, Search, X } from '../../icons'
 import Modal from '../Modal'
+import { useEscapeLayer } from '../../hooks/useEscapeLayer'
 import PageTree from './PageTree'
 import KnowledgeEditor from './KnowledgeEditor'
 import LinksPanel from './LinksPanel'
@@ -69,13 +70,9 @@ export default function KnowledgeArea({
     return () => clearTimeout(t)
   }, [query])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && deleteId === null) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, deleteId])
+  // The delete-confirm modal and any picker above this surface are their own
+  // escape layers; this layer only ever receives Escape when it is topmost.
+  useEscapeLayer(true, onClose)
 
   async function createTop(): Promise<void> {
     const p = await window.kaseki.knowledge.create({ title: 'Untitled' })
@@ -103,12 +100,12 @@ export default function KnowledgeArea({
     setDeleteId(null)
   }
 
-  const saveContent = useCallback(
-    (content: KnowledgeContent) => {
-      if (selectedId != null) window.kaseki.knowledge.update(selectedId, { content })
-    },
-    [selectedId]
-  )
+  // The save carries the editor's own page id — never the currently selected
+  // id, which changes the instant a switch begins while the outgoing page's
+  // debounce may still be pending (the v0.1.0 cross-page overwrite).
+  const saveContent = useCallback((pageId: number, content: KnowledgeContent) => {
+    window.kaseki.knowledge.update(pageId, { content })
+  }, [])
 
   function saveTitle(): void {
     if (selectedId == null) return

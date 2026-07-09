@@ -47,3 +47,34 @@ export function computeAmount(
   if (mode === 'unit') return units === null ? null : rate * units
   return null
 }
+
+// The billable amount attributable to a date window [from, to) — the basis
+// for the report's "billable this month" summary.
+//
+// Time-based work accrues with the entries, so the windowed minutes (already
+// filtered by the report query) price as usual. Fixed-price and per-unit
+// amounts are task-level, not window-level: the full amount counts exactly
+// once, in the month the task was marked Done. v0.1.0 counted a fixed price
+// again in *every* month that happened to contain a logged time entry — a
+// £5,000 fixed-fee matter with time in June and July showed £5,000 in both
+// months' summaries.
+//
+// With no window (from and to null — the all-time view) job/unit amounts
+// count unconditionally, completed or not: a fixed-fee matter in progress is
+// still work with a known price.
+export function computeWindowAmount(
+  mode: BillingMode,
+  rate: number | null,
+  units: number | null,
+  minutes: number,
+  completedAt: string | null,
+  from: string | null,
+  to: string | null
+): number | null {
+  if (mode === 'time' || mode === 'none') return computeAmount(mode, rate, units, minutes)
+  if (from === null && to === null) return computeAmount(mode, rate, units, minutes)
+  if (completedAt === null) return null
+  if (from !== null && completedAt < from) return null
+  if (to !== null && completedAt >= to) return null
+  return computeAmount(mode, rate, units, minutes)
+}

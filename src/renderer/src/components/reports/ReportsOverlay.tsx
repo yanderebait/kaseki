@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { BillingMode, TimeReportRow } from '../../../../shared/types'
-import { BILLING_LABELS, computeAmount } from '../../../../shared/billing'
+import { BILLING_LABELS, computeWindowAmount } from '../../../../shared/billing'
 import { fmtDuration, fmtDueDate, fmtMoney } from '../../format'
 import { useOrb } from '../../orbState'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useEscapeLayer } from '../../hooks/useEscapeLayer'
 import { Download, X } from '../../icons'
 
 // One task's rolled-up time and billing across the report window.
@@ -14,15 +15,19 @@ interface TaskGroup {
   billingMode: BillingMode
   billingRate: number | null
   billingUnits: number | null
+  completedAt: string | null
   totalMinutes: number
   weeks: { weekStart: string; minutes: number }[]
   billable: number | null
 }
 
-// Roll the per-(task, week) rows up to per-task, computing each task's billable
-// from its mode and total minutes (a fixed/unit price isn't per-week, so it's
-// only meaningful at the task level).
-function groupByTask(rows: TimeReportRow[]): TaskGroup[] {
+// Roll the per-(task, week) rows up to per-task, computing each task's
+// billable from its mode, its windowed minutes, and — for fixed-price and
+// per-unit work — whether the task completed inside the window. A row with a
+// null weekStart is a billable task with no tracked time in the window; it
+// contributes to the report but adds no week line. The window bounds must
+// match the ones the report rows were fetched with.
+function groupByTask(rows: TimeReportRow[], from: string | null, to: string | null): TaskGroup[] {
   const map = new Map<number, TaskGroup>()
   for (const r of rows) {
     let g = map.get(r.taskId)
@@ -34,6 +39,7 @@ function groupByTask(rows: TimeReportRow[]): TaskGroup[] {
         billingMode: r.billingMode,
         billingRate: r.billingRate,
         billingUnits: r.billingUnits,
+        completedAt: r.completedAt,
         totalMinutes: 0,
         weeks: [],
         billable: null
@@ -41,10 +47,20 @@ function groupByTask(rows: TimeReportRow[]): TaskGroup[] {
       map.set(r.taskId, g)
     }
     g.totalMinutes += r.minutes
-    g.weeks.push({ weekStart: r.weekStart, minutes: r.minutes })
+    if (r.weekStart !== null) g.weeks.push({ weekStart: r.weekStart, minutes: r.minutes })
   }
   const groups = [...map.values()]
-  for (const g of groups) g.billable = computeAmount(g.billingMode, g.billingRate, g.billingUnits, g.totalMinutes)
+  for (const g of groups) {
+    g.billable = computeWindowAmount(
+      g.billingMode,
+      g.billingRate,
+      g.billingUnits,
+      g.totalMinutes,
+      g.completedAt,
+      from,
+      to
+    )
+  }
   return groups
 }
 
@@ -52,19 +68,27 @@ function csvEscape(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
 }
 
-function buildCsv(rows: TimeReportRow[]): string {
-  const header = ['Space', 'Task', 'Week starting', 'Hours', 'Minutes', 'Billing', 'Rate']
+function buildCsv(rows: TimeReportRow[], groups: TaskGroup[]): string {
+  const billableByTask = new Map(groups.map((g) => [g.taskId, g.billable]))
+  const header = ['Space', 'Task', 'Week starting', 'Hours', 'Minutes', 'Billing', 'Rate', 'Billable', 'Completed']
   const lines = [header.join(',')]
   for (const r of rows) {
+    const billable = r.weekStart === null || rows.find((x) => x.taskId === r.taskId) === r
+      ? billableByTask.get(r.taskId)
+      : null
     lines.push(
       [
         csvEscape(r.spaceName),
         csvEscape(r.taskTitle),
-        r.weekStart,
+        r.weekStart ?? '',
         (r.minutes / 60).toFixed(2),
         String(r.minutes),
         csvEscape(BILLING_LABELS[r.billingMode]),
-        r.billingRate !== null ? String(r.billingRate) : ''
+        r.billingRate !== null ? String(r.billingRate) : '',
+        // The task-level billable prints on the task's first row only, so a
+        // spreadsheet SUM over the column is correct.
+        billable != null ? billable.toFixed(2) : '',
+        r.completedAt ? r.completedAt.slice(0, 10) : ''
       ].join(',')
     )
   }
@@ -91,31 +115,31 @@ export default function ReportsOverlay({
   const { flash } = useOrb()
   const trapRef = useFocusTrap<HTMLDivElement>()
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer(true, onClose)
+
+  const now = new Date()
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
+  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString()
 
   useEffect(() => {
     const sid = scope === 'all' ? null : spaceId
-    const now = new Date()
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
-    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString()
     window.kaseki.tasks.timeReport({ spaceId: sid }).then(setRows)
     window.kaseki.tasks.timeReport({ spaceId: sid, from: monthStart, to: monthEnd }).then(setMonthRows)
+    // monthStart/monthEnd are stable within a render session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, spaceId])
 
-  const groups = useMemo(() => groupByTask(rows), [rows])
-  const monthGroups = useMemo(() => groupByTask(monthRows), [monthRows])
+  const groups = useMemo(() => groupByTask(rows, null, null), [rows])
+  const monthGroups = useMemo(
+    () => groupByTask(monthRows, monthStart, monthEnd),
+    [monthRows, monthStart, monthEnd]
+  )
   const monthMinutes = monthGroups.reduce((sum, g) => sum + g.totalMinutes, 0)
   const monthBillable = monthGroups.reduce((sum, g) => sum + (g.billable ?? 0), 0)
 
   async function exportCsv(): Promise<void> {
     const name = scope === 'all' ? 'Kaseki — all spaces' : `${spaceName} — Kaseki`
-    const result = await window.kaseki.reports.exportCsv(name, buildCsv(rows))
+    const result = await window.kaseki.reports.exportCsv(name, buildCsv(rows, groups))
     if (result.ok) flash('saved')
   }
 
@@ -167,7 +191,7 @@ export default function ReportsOverlay({
 
         <div className="reports-body">
           {groups.length === 0 ? (
-            <p className="hint">No time tracked yet.</p>
+            <p className="hint">No tracked time or billable tasks yet.</p>
           ) : (
             <table className="reports-table">
               <thead>

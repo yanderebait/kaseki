@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog, nativeImage, shell } from 'electron'
 import { spawn } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { paths } from './paths'
-import { createAppItem, getItemTarget, getLauncherItem, setItemIcon } from './db/launcher'
+import { createAppItem, getItemTarget, getLauncherItem, listLauncherItems, setItemIcon } from './db/launcher'
 import type { LauncherItem } from '../shared/types'
 import { log } from './logger'
 
@@ -14,19 +14,44 @@ export interface LaunchResult {
   error?: string
 }
 
+// spawn() reports launch failures (EACCES, ENOENT, ENOEXEC) asynchronously
+// on the child's 'error' event — a try/catch around the call cannot see
+// them, and in 0.1.0 they surfaced as an unhandled 'error' event after
+// launchItem had already returned ok. This wraps the handshake: resolve on
+// 'spawn', reject on 'error'.
+function spawnDetached(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' })
+    child.once('error', reject)
+    child.once('spawn', () => {
+      child.unref()
+      resolve()
+    })
+  })
+}
+
 // Resolves the item by id (the renderer never passes a path) and launches
 // it. URLs go to the default browser; apps go to the OS — shell.openPath on
 // Windows/macOS, a detached spawn on Linux where openPath would not execute
-// a plain binary.
+// a plain binary. Linux .desktop entries (the most common thing a user picks
+// when browsing for an "app") are text files, not executables — they go
+// through gio launch, which reads the Exec line properly.
 export async function launchItem(id: number): Promise<LaunchResult> {
   const target = getItemTarget(id)
   if (!target) return { ok: false, error: 'Item not found.' }
   if (!target.available) return { ok: false, error: 'Not available on this machine.' }
   try {
     if (target.kind === 'url') {
+      if (!/^https?:\/\//i.test(target.pathOrUrl)) {
+        return { ok: false, error: 'Only http(s) links can be opened.' }
+      }
       await shell.openExternal(target.pathOrUrl)
     } else if (process.platform === 'linux') {
-      spawn(target.pathOrUrl, [], { detached: true, stdio: 'ignore' }).unref()
+      if (extname(target.pathOrUrl).toLowerCase() === '.desktop') {
+        await spawnDetached('gio', ['launch', target.pathOrUrl])
+      } else {
+        await spawnDetached(target.pathOrUrl, [])
+      }
     } else {
       const err = await shell.openPath(target.pathOrUrl)
       if (err) return { ok: false, error: err }
@@ -34,7 +59,27 @@ export async function launchItem(id: number): Promise<LaunchResult> {
     return { ok: true }
   } catch (error) {
     log.error('Launch failed', error)
+    const code = (error as NodeJS.ErrnoException)?.code
+    if (code === 'EACCES' || code === 'ENOEXEC') {
+      return { ok: false, error: 'That file is not executable.' }
+    }
+    if (code === 'ENOENT') {
+      return { ok: false, error: 'The program was not found.' }
+    }
     return { ok: false, error: 'Could not launch this item.' }
+  }
+}
+
+// Removes the on-disk icon files for every launcher item in a space —
+// called before the space itself is deleted so the icons/ directory does
+// not accumulate orphans.
+export function removeSpaceLauncherIcons(spaceId: number): void {
+  for (const item of listLauncherItems(spaceId)) {
+    try {
+      rmSync(join(paths.icons, `icon-${item.id}.png`), { force: true })
+    } catch {
+      // best-effort cleanup
+    }
   }
 }
 

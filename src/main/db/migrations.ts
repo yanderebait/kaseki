@@ -1,9 +1,46 @@
 import type { Database } from 'better-sqlite3-multiple-ciphers'
 import { log } from '../logger'
+import { machineTz } from '../recur'
 
 // Forward-only migrations. PRAGMA user_version records the last applied
-// index + 1. Never edit a shipped migration — append a new one.
-const migrations: string[] = [
+// index + 1. Never edit a shipped migration — append a new one. A migration
+// is either a SQL string or a function (for migrations that need runtime
+// values, like the machine's timezone); both run inside a transaction.
+type Migration = string | ((db: Database) => void)
+
+// Migration 008's status cleanup, exported so the self-test can exercise it
+// against crafted rows. Two archived concepts existed in 0.1.0: the
+// tasks.archived boolean (the real mechanism) and an 'Archived' entry in
+// status sets (a decoy that left tasks visible and "active"). This converts
+// status-archived tasks to the boolean and strips 'Archived' from every
+// space's status set, ensuring 'Done' is always present since the app's
+// completion logic keys on it.
+export function normalizeArchivedStatuses(db: Database): void {
+  db.prepare(
+    "UPDATE tasks SET archived = 1, status = NULL WHERE status = 'Archived'"
+  ).run()
+  const spaces = db.prepare('SELECT id, preferences FROM spaces').all() as Array<{
+    id: number
+    preferences: string | null
+  }>
+  const write = db.prepare('UPDATE spaces SET preferences = ? WHERE id = ?')
+  for (const s of spaces) {
+    let prefs: Record<string, unknown>
+    try {
+      prefs = s.preferences ? (JSON.parse(s.preferences) as Record<string, unknown>) : {}
+    } catch {
+      prefs = {}
+    }
+    const raw = prefs.statusSet
+    if (!Array.isArray(raw)) continue
+    const cleaned = raw.filter((x): x is string => typeof x === 'string' && x !== 'Archived')
+    if (!cleaned.includes('Done')) cleaned.push('Done')
+    prefs.statusSet = cleaned
+    write.run(JSON.stringify(prefs), s.id)
+  }
+}
+
+const migrations: Migration[] = [
   // 001 — core schema from Appendix C of the spec
   `
   CREATE TABLE users (
@@ -295,14 +332,54 @@ const migrations: string[] = [
   ALTER TABLE tasks ADD COLUMN billing_mode TEXT;
   ALTER TABLE tasks ADD COLUMN billing_rate REAL;
   ALTER TABLE tasks ADD COLUMN billing_units INTEGER;
-  `
+  `,
+
+  // Migration 008 (v0.2.0).
+  //
+  // 1. events.tz — the IANA timezone an event belongs to. Recurring events now
+  //    repeat at the same wall-clock time in this zone instead of at a fixed
+  //    UTC instant, so they no longer drift by an hour across DST changes.
+  //    Existing rows are stamped with the machine's current zone: their stored
+  //    UTC instants were created on this machine, so its zone reproduces the
+  //    wall times the user originally picked.
+  // 2. tasks.completed_at — set when a task transitions to 'Done', cleared on
+  //    leaving it. Fixed-price and per-unit billing counts in the month a task
+  //    completed, which needs this timestamp. Existing Done tasks are
+  //    backfilled from updated_at (the best available approximation).
+  // 3. Status cleanup — see normalizeArchivedStatuses above.
+  // 4. Indexes for the hot foreign-key lookups. Optional at personal scale,
+  //    cheap insurance beyond it.
+  (db: Database): void => {
+    db.exec(`
+      ALTER TABLE events ADD COLUMN tz TEXT;
+      ALTER TABLE tasks ADD COLUMN completed_at TIMESTAMP;
+    `)
+    db.prepare('UPDATE events SET tz = ?').run(machineTz())
+    db.prepare(
+      "UPDATE tasks SET completed_at = updated_at WHERE status = 'Done' AND completed_at IS NULL"
+    ).run()
+    normalizeArchivedStatuses(db)
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_tasks_space ON tasks(space_id);
+      CREATE INDEX IF NOT EXISTS idx_subtasks_task ON subtasks(task_id);
+      CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id);
+      CREATE INDEX IF NOT EXISTS idx_events_parent ON events(recurrence_parent_id);
+      CREATE INDEX IF NOT EXISTS idx_field_values_task ON custom_field_values(task_id);
+      CREATE INDEX IF NOT EXISTS idx_task_files_task ON task_files(task_id);
+      CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_type, source_id);
+      CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_type, target_id);
+      CREATE INDEX IF NOT EXISTS idx_activity_item ON activity_log(item_type, item_id);
+    `)
+  }
 ]
 
 export function runMigrations(db: Database): void {
   const current = db.pragma('user_version', { simple: true }) as number
   for (let i = current; i < migrations.length; i++) {
+    const step = migrations[i]
     db.transaction(() => {
-      db.exec(migrations[i])
+      if (typeof step === 'string') db.exec(step)
+      else step(db)
       db.pragma(`user_version = ${i + 1}`)
     })()
     log.info(`Applied migration ${i + 1}`)

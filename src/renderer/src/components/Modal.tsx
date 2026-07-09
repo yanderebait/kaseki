@@ -1,8 +1,10 @@
-import { useEffect } from 'react'
+import { useEscapeLayer } from '../hooks/useEscapeLayer'
 
 // Centered modal chrome (Part 3: max-width 560px, 16px radius). Dismisses
 // on Escape or backdrop click. Reused by the create-space affordance and
-// the settings panel.
+// the settings panel. Escape goes through the shared layer stack, so a modal
+// stacked over another surface (a viewer, the vault) closes alone instead of
+// taking everything beneath it down too.
 export default function Modal({
   title,
   onClose,
@@ -12,13 +14,7 @@ export default function Modal({
   onClose: () => void
   children: React.ReactNode
 }): React.JSX.Element {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer(true, onClose)
 
   return (
     <div className="modal-backdrop" onClick={onClose}>

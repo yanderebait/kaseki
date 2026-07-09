@@ -1,3 +1,4 @@
+import { BrowserWindow } from 'electron'
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -37,6 +38,15 @@ function forgetDek(): void {
   dek = null
 }
 
+// Tells every window the vault's lock state changed, so the renderer can flip
+// to the locked pane the moment an auto-lock fires instead of sitting on a
+// stale "unlocked" view (whose next action would just fail).
+function broadcastVaultChanged(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('vault:changed', vaultStatus())
+  }
+}
+
 // (Re)arms the inactivity auto-lock from the user's preference (minutes; 0 or
 // absent = stay unlocked until the app closes, the default). Called on unlock
 // and on every vault operation, so any activity resets the countdown.
@@ -47,6 +57,13 @@ function armAutoLock(): void {
   }
   const minutes = Number(getPreferences().vaultAutoLock) || 0
   if (dek && minutes > 0) lockTimer = setTimeout(() => lock(), minutes * 60_000)
+}
+
+// Called when the vaultAutoLock preference changes so a running countdown
+// picks the new value up immediately (it previously applied only after the
+// next vault operation).
+export function rearmAutoLock(): void {
+  armAutoLock()
 }
 
 interface VaultRow {
@@ -78,14 +95,14 @@ function requireDek(): Buffer {
 // Creates the vault: a fresh random DEK wrapped by the passcode key and by a
 // new recovery phrase's key. Returns the 24-word phrase to show once — it is
 // never stored, only its wrapping of the DEK is. Leaves the vault unlocked.
-export function createVault(passcode: string): { mnemonic: string } {
+export async function createVault(passcode: string): Promise<{ mnemonic: string }> {
   if (vaultRow()) throw new Error('vault already exists')
   const newDek = randomKey()
   const passcodeSalt = randomSalt()
   const recoverySalt = randomSalt()
   const mnemonic = generateMnemonic()
 
-  const kekPass = deriveKeyFromPasscode(passcode, passcodeSalt)
+  const kekPass = await deriveKeyFromPasscode(passcode, passcodeSalt)
   const kekRec = deriveKeyFromEntropy(mnemonicToEntropy(mnemonic), recoverySalt)
 
   getDb()
@@ -95,48 +112,60 @@ export function createVault(passcode: string): { mnemonic: string } {
     )
     .run(passcodeSalt, recoverySalt, seal(kekPass, newDek), seal(kekRec, newDek))
 
+  kekPass.fill(0)
+  kekRec.fill(0)
   dek = newDek
   armAutoLock()
+  broadcastVaultChanged()
   return { mnemonic }
 }
 
 // Tries to unlock with the passcode. Wrong passcode → false (the GCM tag on
 // the wrapped DEK fails to verify); no error surfaces.
-export function unlock(passcode: string): boolean {
+export async function unlock(passcode: string): Promise<boolean> {
   const row = vaultRow()
   if (!row) return false
-  const kek = deriveKeyFromPasscode(passcode, row.passcode_salt)
+  const kek = await deriveKeyFromPasscode(passcode, row.passcode_salt)
   const unwrapped = tryOpen(kek, row.dek_wrapped_passcode)
+  kek.fill(0)
   if (!unwrapped) return false
   forgetDek()
   dek = unwrapped
   armAutoLock()
+  broadcastVaultChanged()
   return true
 }
 
 export function lock(): void {
   forgetDek()
+  broadcastVaultChanged()
 }
 
 // Changes the passcode: verifies the old one, then re-wraps the DEK under a
-// new passcode key with a fresh salt. Files are untouched.
-export function changePasscode(oldPasscode: string, newPasscode: string): boolean {
+// new passcode key with a fresh salt. Files are untouched. Every key copy is
+// zeroed before it goes out of scope — the lock path is careful about this
+// and the rewrap paths previously weren't.
+export async function changePasscode(oldPasscode: string, newPasscode: string): Promise<boolean> {
   const row = vaultRow()
   if (!row) return false
-  const currentDek = tryOpen(deriveKeyFromPasscode(oldPasscode, row.passcode_salt), row.dek_wrapped_passcode)
+  const oldKek = await deriveKeyFromPasscode(oldPasscode, row.passcode_salt)
+  const currentDek = tryOpen(oldKek, row.dek_wrapped_passcode)
+  oldKek.fill(0)
   if (!currentDek) return false
   const newSalt = randomSalt()
-  const kek = deriveKeyFromPasscode(newPasscode, newSalt)
+  const kek = await deriveKeyFromPasscode(newPasscode, newSalt)
   getDb()
     .prepare('UPDATE vault SET passcode_salt = ?, dek_wrapped_passcode = ? WHERE id = 1')
     .run(newSalt, seal(kek, currentDek))
+  kek.fill(0)
+  currentDek.fill(0)
   return true
 }
 
 // Resets the passcode using the recovery phrase: unwraps the DEK via the
 // recovery key and re-wraps it under a new passcode. Lets a user who forgot
 // the passcode set a new one without losing any files.
-export function resetWithRecovery(mnemonic: string, newPasscode: string): boolean {
+export async function resetWithRecovery(mnemonic: string, newPasscode: string): Promise<boolean> {
   const row = vaultRow()
   if (!row) return false
   let entropy: Buffer
@@ -145,13 +174,17 @@ export function resetWithRecovery(mnemonic: string, newPasscode: string): boolea
   } catch {
     return false
   }
-  const currentDek = tryOpen(deriveKeyFromEntropy(entropy, row.recovery_salt), row.dek_wrapped_recovery)
+  const recKek = deriveKeyFromEntropy(entropy, row.recovery_salt)
+  const currentDek = tryOpen(recKek, row.dek_wrapped_recovery)
+  recKek.fill(0)
   if (!currentDek) return false
   const newSalt = randomSalt()
-  const kek = deriveKeyFromPasscode(newPasscode, newSalt)
+  const kek = await deriveKeyFromPasscode(newPasscode, newSalt)
   getDb()
     .prepare('UPDATE vault SET passcode_salt = ?, dek_wrapped_passcode = ? WHERE id = 1')
     .run(newSalt, seal(kek, currentDek))
+  kek.fill(0)
+  currentDek.fill(0)
   return true
 }
 

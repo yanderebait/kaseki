@@ -1,4 +1,4 @@
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { paths } from './paths'
 
@@ -31,4 +31,22 @@ export const log = {
   info: (message: string, detail?: unknown) => write('info', message, detail),
   warn: (message: string, detail?: unknown) => write('warn', message, detail),
   error: (message: string, detail?: unknown) => write('error', message, detail)
+}
+
+// Deletes daily log files older than 30 days. One file per day was written
+// forever in 0.1.0. Called once at startup; failures are swallowed — log
+// hygiene must never take the app down.
+export function pruneOldLogs(maxAgeDays = 30): void {
+  try {
+    const cutoff = Date.now() - maxAgeDays * 86_400_000
+    for (const name of readdirSync(paths.logs)) {
+      const m = /^kaseki-(\d{4}-\d{2}-\d{2})\.log$/.exec(name)
+      if (!m) continue
+      if (Date.parse(m[1] + 'T00:00:00Z') < cutoff) {
+        rmSync(join(paths.logs, name), { force: true })
+      }
+    }
+  } catch {
+    // best-effort
+  }
 }

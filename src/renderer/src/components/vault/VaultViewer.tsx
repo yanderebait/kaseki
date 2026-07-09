@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useEscapeLayer } from '../../hooks/useEscapeLayer'
 import type { VaultFile } from '../../../../shared/types'
 import { X } from '../../icons'
 import ImageRenderer from '../viewer/ImageRenderer'
@@ -20,13 +21,7 @@ export default function VaultViewer({
 }): React.JSX.Element {
   const [toast, setToast] = useState<string | null>(null)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer(true, onClose)
 
   // Copying sensitive content arms a 30-second clipboard auto-clear in main;
   // confirm it with a toast when it's enabled.

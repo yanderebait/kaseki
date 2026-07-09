@@ -10,10 +10,12 @@ import { Book } from '../icons'
 // persists onto the dashboard too.
 export default function Home({
   onOpenSpace,
-  onOpenKnowledge
+  onOpenKnowledge,
+  onOpenTask
 }: {
   onOpenSpace: (spaceId: number) => void
   onOpenKnowledge: () => void
+  onOpenTask?: (spaceId: number, taskId: number) => void
 }): React.JSX.Element {
   const [name, setName] = useState('')
 
@@ -33,7 +35,7 @@ export default function Home({
             </button>
           </header>
           <ProfessionCards onOpenSpace={onOpenSpace} />
-          <ActivityFeed />
+          <ActivityFeed onOpenTask={onOpenTask} />
         </div>
         <div className="home-col">
           <CalendarStrip />

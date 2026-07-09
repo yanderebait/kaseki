@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SpaceDetail } from '../../../shared/types'
 import { FIELD_TYPE_LABELS } from '../fieldTypes'
-import { ArrowLeft, Chart, List, Sidebar } from '../icons'
+import { ArrowLeft, Chart, List, Settings as SettingsIcon, Sidebar } from '../icons'
 import LauncherDock from '../components/LauncherDock'
 import DashboardCalendar from '../components/DashboardCalendar'
 import TaskList from '../components/tasks/TaskList'
 import TaskDetailSlideout from '../components/tasks/TaskDetailSlideout'
 import PomodoroPill from '../components/PomodoroPill'
 import ReportsOverlay from '../components/reports/ReportsOverlay'
+import SpaceSettingsModal from '../components/SpaceSettingsModal'
 
 const DEFAULT_SLIDEOUT_WIDTH = 60
 
@@ -16,15 +17,20 @@ const DEFAULT_SLIDEOUT_WIDTH = 60
 // view of the space's applied configuration alongside. A per-space density
 // toggle compacts the layout.
 export default function Dashboard({
+  eventReload = 0,
   spaceId,
   onBack,
   onOpenFile,
-  requestedTaskId
+  requestedTaskId,
+  onSpaceGone
 }: {
   spaceId: number
   onBack: () => void
   onOpenFile?: (fileId: number) => void
   requestedTaskId?: number
+  eventReload?: number
+  // Fired after this space is archived or deleted from its settings modal.
+  onSpaceGone?: () => void
 }): React.JSX.Element {
   const [space, setSpace] = useState<SpaceDetail | null>(null)
   const [compact, setCompact] = useState(false)
@@ -33,6 +39,7 @@ export default function Dashboard({
   const [slideoutWidth, setSlideoutWidth] = useState(DEFAULT_SLIDEOUT_WIDTH)
   const [currency, setCurrency] = useState('£')
   const [reportsOpen, setReportsOpen] = useState(false)
+  const [spaceSettingsOpen, setSpaceSettingsOpen] = useState(false)
 
   useEffect(() => {
     window.kaseki.spaces.get(spaceId).then(setSpace)
@@ -91,6 +98,15 @@ export default function Dashboard({
         <button
           type="button"
           className="icon-button"
+          aria-label="Space settings"
+          title="Space settings"
+          onClick={() => setSpaceSettingsOpen(true)}
+        >
+          <SettingsIcon size={18} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
           aria-label={compact ? 'Regular density' : 'Compact density'}
           aria-pressed={compact}
           title={compact ? 'Regular density' : 'Compact density'}
@@ -110,7 +126,7 @@ export default function Dashboard({
             reloadSignal={taskReload}
             onOpenTask={setOpenTaskId}
           />
-          <DashboardCalendar spaceId={space.id} />
+          <DashboardCalendar spaceId={space.id} reloadSignal={eventReload} />
         </div>
 
         <aside className="dashboard-config">
@@ -144,7 +160,7 @@ export default function Dashboard({
           <section data-tour="cheatsheet">
             <span className="region-title">Cheatsheet</span>
             {space.cheatsheet.trim().length === 0 ? (
-              <p className="hint">Empty — the editor arrives with the knowledge area (Phase 6).</p>
+              <p className="hint">Empty — edit it in space settings (the gear above).</p>
             ) : (
               <pre className="cheatsheet-text">{space.cheatsheet}</pre>
             )}
@@ -174,6 +190,18 @@ export default function Dashboard({
           spaceName={space.name}
           currency={currency}
           onClose={() => setReportsOpen(false)}
+        />
+      )}
+
+      {spaceSettingsOpen && (
+        <SpaceSettingsModal
+          space={space}
+          onClose={() => setSpaceSettingsOpen(false)}
+          onSaved={() => window.kaseki.spaces.get(spaceId).then(setSpace)}
+          onGone={() => {
+            setSpaceSettingsOpen(false)
+            onSpaceGone?.()
+          }}
         />
       )}
     </div>

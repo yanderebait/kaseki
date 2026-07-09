@@ -15,7 +15,9 @@ import Settings from './components/Settings'
 import ShortcutsHelp from './components/ShortcutsHelp'
 import OrbAnnouncer from './components/OrbAnnouncer'
 import Tour from './components/Tour'
-import type { SearchHit, Space, Task } from '../../shared/types'
+import type { CalendarEvent, SearchHit, Space, Task } from '../../shared/types'
+import EventModal from './components/EventModal'
+import ErrorBoundary from './components/ErrorBoundary'
 import { useOrb } from './orbState'
 import { useTheme } from './theme'
 import { PomodoroProvider } from './pomodoro'
@@ -52,6 +54,12 @@ export default function AppShell({
   const [spaces, setSpaces] = useState<Space[]>([])
   const [homeKey, setHomeKey] = useState(0)
   const [tourOpen, setTourOpen] = useState(false)
+  // A search-hit event opens the edit modal right here at the shell — 0.1.0
+  // routed to the space dashboard and left the user to find the event by eye
+  // (and Global events routed to home with nothing at all).
+  const [eventEdit, setEventEdit] = useState<CalendarEvent | null>(null)
+  const [eventReload, setEventReload] = useState(0)
+  const [sensitiveFileId, setSensitiveFileId] = useState<number | null>(null)
   const { rest, flash, say } = useOrb()
   const { toggle: toggleTheme } = useTheme()
   const tipShown = useRef(false)
@@ -115,6 +123,9 @@ export default function AppShell({
           break
         case 'event':
           setView(hit.spaceId != null ? { name: 'dashboard', spaceId: hit.spaceId } : { name: 'home' })
+          window.kaseki.events.get(hit.id).then((ev) => {
+            if (ev) setEventEdit(ev)
+          })
           break
         case 'file':
           setViewer({ fileId: hit.id })
@@ -126,6 +137,7 @@ export default function AppShell({
           setKnowledge({ pageId: hit.id })
           break
         case 'vault':
+          setSensitiveFileId(hit.id)
           setSensitiveOpen(true)
           break
       }
@@ -219,19 +231,26 @@ export default function AppShell({
   }, [openFile, sensitiveOpen, searchOpen, quickOpen, spaces, flash, toggleTheme])
 
   return (
-    <PomodoroProvider>
+    <ErrorBoundary>
+      <PomodoroProvider>
       {view.name === 'home' ? (
         <Home
           key={homeKey}
           onOpenSpace={(spaceId) => setView({ name: 'dashboard', spaceId })}
           onOpenKnowledge={() => setKnowledge({})}
+          onOpenTask={(spaceId, taskId) => setView({ name: 'dashboard', spaceId, openTaskId: taskId })}
         />
       ) : (
         <Dashboard
           spaceId={view.spaceId}
           requestedTaskId={view.openTaskId}
+          eventReload={eventReload}
           onBack={() => setView({ name: 'home' })}
           onOpenFile={(fileId) => setViewer({ fileId })}
+          onSpaceGone={() => {
+            setHomeKey((k) => k + 1)
+            setView({ name: 'home' })
+          }}
         />
       )}
       <Orb
@@ -256,7 +275,15 @@ export default function AppShell({
         {knowledge && (
           <KnowledgeArea initialPageId={knowledge.pageId} onClose={() => setKnowledge(null)} />
         )}
-        {sensitiveOpen && <SensitiveFolder onClose={() => setSensitiveOpen(false)} />}
+        {sensitiveOpen && (
+          <SensitiveFolder
+            initialFileId={sensitiveFileId ?? undefined}
+            onClose={() => {
+              setSensitiveOpen(false)
+              setSensitiveFileId(null)
+            }}
+          />
+        )}
       </Suspense>
       {searchOpen && (
         <SearchPalette onClose={() => setSearchOpen(false)} onSelect={openHit} onCommand={onCommand} />
@@ -282,8 +309,20 @@ export default function AppShell({
         <Settings initial={settingsCategory} onClose={() => setSettingsCategory(null)} />
       )}
       {shortcutsOpen && <ShortcutsHelp onClose={() => setShortcutsOpen(false)} />}
+      {eventEdit && (
+        <EventModal
+          event={eventEdit}
+          onClose={() => setEventEdit(null)}
+          onSaved={() => {
+            // Nudge whichever calendar is showing to refetch.
+            setEventReload((n) => n + 1)
+            setHomeKey((k) => k + 1)
+          }}
+        />
+      )}
       {tourOpen && <Tour onClose={() => setTourOpen(false)} />}
       <OrbAnnouncer />
-    </PomodoroProvider>
+      </PomodoroProvider>
+    </ErrorBoundary>
   )
 }

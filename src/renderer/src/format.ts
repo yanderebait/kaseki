@@ -23,13 +23,30 @@ export function fmtMoney(amount: number, symbol = '£'): string {
 }
 
 // A short due-date label, e.g. "14 Jul" (or with the year if it's not this one).
+// Accepts a bare date ('2026-07-14', how due dates are stored) or a full ISO
+// timestamp. Bare dates are parsed as *local* calendar dates: new Date() reads
+// them as UTC midnight, which displays as the previous day anywhere west of
+// Greenwich.
 export function fmtDueDate(iso: string): string {
-  const d = new Date(iso)
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  const d = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(iso)
   const opts: Intl.DateTimeFormatOptions =
     d.getFullYear() === new Date().getFullYear()
       ? { day: 'numeric', month: 'short' }
       : { day: 'numeric', month: 'short', year: 'numeric' }
   return d.toLocaleDateString(undefined, opts)
+}
+
+// The local calendar date ('YYYY-MM-DD') of a stored UTC instant — for
+// pre-filling date inputs from real timestamps. Slicing the ISO string (the
+// 0.1.0 approach) took the *UTC* date, so editing an entry logged before
+// 01:00 CET silently moved it back a day.
+export function localDateOf(iso: string): string {
+  const d = new Date(iso)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 export function relativeTime(iso: string): string {

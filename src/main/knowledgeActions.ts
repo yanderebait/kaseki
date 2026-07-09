@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog } from 'electron'
 import { writeFileSync } from 'node:fs'
+import { log } from './logger'
 import { getPage } from './db/knowledge'
 import { pmToMarkdown } from './prosemirror'
 
@@ -23,6 +24,13 @@ export async function exportPageMarkdown(pageId: number): Promise<{ ok: boolean 
     ? await dialog.showSaveDialog(win, options)
     : await dialog.showSaveDialog(options)
   if (result.canceled || !result.filePath) return { ok: false }
-  writeFileSync(result.filePath, markdown)
+  try {
+    writeFileSync(result.filePath, markdown)
+  } catch (error) {
+    // A failed write (permissions, disk full, network share gone) previously
+    // rejected the IPC promise and surfaced nowhere in the UI.
+    log.error('Page export write failed', error)
+    return { ok: false }
+  }
   return { ok: true }
 }

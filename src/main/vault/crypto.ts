@@ -4,7 +4,7 @@ import {
   createDecipheriv,
   hkdfSync,
   randomBytes,
-  scryptSync
+  scrypt
 } from 'node:crypto'
 import { BIP39_WORDLIST } from './wordlist'
 
@@ -29,9 +29,17 @@ const SCRYPT = { N: 2 ** 17, r: 8, p: 1, maxmem: 300 * 1024 * 1024 } as const
 // --- key derivation ---
 
 // Passcode → key. Low-entropy input, so this is deliberately slow and
-// memory-hard. The salt is stored per-vault.
-export function deriveKeyFromPasscode(passcode: string, salt: Buffer): Buffer {
-  return scryptSync(passcode.normalize('NFKC'), salt, KEY_BYTES, SCRYPT)
+// memory-hard. The salt is stored per-vault. Async: the derivation runs on
+// libuv's threadpool, so the main process (window painting, every other IPC
+// handler) stays responsive for the ~second the KDF takes — the synchronous
+// variant froze the whole app.
+export function deriveKeyFromPasscode(passcode: string, salt: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scrypt(passcode.normalize('NFKC'), salt, KEY_BYTES, SCRYPT, (err, key) => {
+      if (err) reject(err)
+      else resolve(key)
+    })
+  })
 }
 
 // Recovery entropy → key. The mnemonic's 256 bits are already uniform, so a

@@ -35,6 +35,7 @@ A *space* is one area of work — "Legal", "Home", "Freelance". Each space has i
 - **A cheatsheet** — a collapsible panel of quick-reference notes (the legal space ships with section references, for instance).
 - **An application launcher dock** in the header — one-click links to the apps and websites you use for this kind of work.
 - **A density toggle** to compact the layout.
+- **Space settings** (the gear in the header) — rename the space, change its accent and icon, edit the cheatsheet and status set, archive it, or delete it and everything in it. Archived spaces can be restored (or permanently deleted) from **Settings → Profession spaces**.
 
 Switch spaces by returning home (back arrow, or **Cmd/Ctrl+H**) and picking another card, or jump straight to a space with **Cmd/Ctrl+1** through **9**.
 
@@ -50,7 +51,7 @@ Add a task from the box at the top of the list, or press **Shift+N** anywhere fo
 - **Activity** — the task's full change history.
 - **Dependencies** — what this task is waiting on and what it blocks. Kaseki prevents circular dependencies and warns if you complete a task whose blockers aren't done.
 
-Select several tasks (Cmd/Ctrl/Shift-click) to act on them in bulk — change status, tag, pin, archive, move to another space, or delete. Save a task's structure as a **template** for repeatable workflows.
+Select several tasks (Cmd/Ctrl/Shift-click) to act on them in bulk — change status, tag, pin, archive, move to another space, or delete. Archived tasks live in a collapsible **Archived** shelf under the list — open it to unarchive or revisit them. Save a task's structure as a **template** for repeatable workflows.
 
 ## Time tracking and billing
 
@@ -62,11 +63,11 @@ Kaseki tracks time per task three ways, set by the space's default and overridab
 
 Set the currency symbol in **Settings → General** and per-space defaults in **Settings → Profession spaces**.
 
-Log time two ways: the **pomodoro timer** (start a 25-minute session against a task from its Time tab; it runs in the header with pause / +5 minutes / end, and logs automatically when it finishes), or **manual entry** (a date, a duration, a note). The **Reports** button in the dashboard header opens a time-and-billing report — hours per task per week, billable-this-month, a per-space / all-spaces toggle, and CSV export.
+Log time two ways: the **pomodoro timer** (start a 25-minute session against a task from its Time tab; it runs in the header with pause / +5 minutes / end, and logs automatically when it finishes), or **manual entry** (a date, a duration, a note). The **Reports** button in the dashboard header opens a time-and-billing report — hours per task per week, billable-this-month, a per-space / all-spaces toggle, and CSV export. Time-based work bills by the tracked minutes; fixed-price and per-unit work counts once, in the month the task is marked Done, and appears in the report whether or not any time was tracked against it.
 
 ## Calendar
 
-Each dashboard shows its space's calendar; the home strip shows everything for the next week. Add events with a title, date, time, location, and recurrence (none / hourly / 6-hour / 12-hour / daily / weekly / monthly / yearly / custom). Export a calendar to `.ics` from the calendar's download button.
+Each dashboard shows its space's calendar; the home strip shows everything for the next week. Page the dashboard calendar backwards and forwards a week at a time with the **‹ Today ›** controls. Add events with a title, date, time, location, and recurrence (none / hourly / 6-hour / 12-hour / daily / weekly / monthly / yearly / custom). An end time earlier than the start rolls to the next day, so overnight sessions work. Recurring events repeat at the same wall-clock time in the timezone they were created in — a weekly 14:00 call stays at 14:00 through daylight-saving changes. Export a calendar to `.ics` from the calendar's download button.
 
 ## Knowledge area
 
@@ -74,7 +75,7 @@ A personal wiki, opened from the home screen or the Orb menu. Pages nest into a 
 
 ## Documents
 
-Attach files to tasks, or open the document viewer directly. It renders PDFs (with page navigation, zoom, thumbnails, and find-in-document), images, text, code, Markdown, and CSV (as a sortable table). Annotate documents (highlights, notes, bookmarks), print, save a copy, and group related files into **bundles** you can page through.
+Attach files to tasks, or open the document viewer directly. It renders PDFs (with page navigation, zoom, thumbnails, and find-in-document), images, text, code, Markdown, and CSV (as a sortable table). Annotate documents (highlights span multiple lines cleanly; notes; bookmarks), print, save a copy, rename or delete files from the sidebar's right-click menu, and group related files into **bundles** you can page through.
 
 ## The sensitive folder
 
@@ -90,7 +91,7 @@ Press **Cmd/Ctrl+K** anywhere to search across everything — tasks, subtasks, e
 
 ## Settings
 
-Reach settings from the Orb menu or **Cmd/Ctrl+,**. Highlights: theme / font size / currency (General), per-space billing (Profession spaces), accent and background (Customization), the Orb, the sensitive folder passcode, the keyboard-shortcut reference, and **Crash reporting** (off by default — see the self-hosting guide).
+Reach settings from the Orb menu or **Cmd/Ctrl+,**. Highlights: theme / font size / currency and **changing your login password** (General), per-space billing and archived-space management (Profession spaces), accent and background (Customization), the Orb, the sensitive folder passcode, the keyboard-shortcut reference, and **Crash reporting** (off by default — see the self-hosting guide).
 
 ## Your data
 

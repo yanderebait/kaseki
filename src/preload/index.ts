@@ -27,6 +27,7 @@ import type {
   SpaceBilling,
   Space,
   SpaceDetail,
+  SpaceEdit,
   Subtask,
   Tag,
   Task,
@@ -62,7 +63,9 @@ const api = {
     status: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:status'),
     setup: (name: string, password: string): Promise<AuthResult> =>
       ipcRenderer.invoke('auth:setup', name, password),
-    unlock: (password: string): Promise<AuthResult> => ipcRenderer.invoke('auth:unlock', password)
+    unlock: (password: string): Promise<AuthResult> => ipcRenderer.invoke('auth:unlock', password),
+    changePassword: (current: string, next: string): Promise<AuthResult> =>
+      ipcRenderer.invoke('auth:changePassword', current, next)
   },
   user: {
     get: (): Promise<User> => ipcRenderer.invoke('user:get')
@@ -83,6 +86,12 @@ const api = {
     list: (): Promise<Space[]> => ipcRenderer.invoke('spaces:list'),
     get: (id: number): Promise<SpaceDetail> => ipcRenderer.invoke('spaces:get', id),
     create: (input: NewSpace): Promise<Space> => ipcRenderer.invoke('spaces:create', input),
+    update: (id: number, patch: SpaceEdit): Promise<void> =>
+      ipcRenderer.invoke('spaces:update', id, patch),
+    archive: (id: number, archived: boolean): Promise<void> =>
+      ipcRenderer.invoke('spaces:archive', id, archived),
+    listArchived: (): Promise<Space[]> => ipcRenderer.invoke('spaces:listArchived'),
+    delete: (id: number): Promise<void> => ipcRenderer.invoke('spaces:delete', id),
     setBilling: (spaceId: number, billing: SpaceBilling): Promise<void> =>
       ipcRenderer.invoke('spaces:setBilling', spaceId, billing)
   },
@@ -113,7 +122,9 @@ const api = {
       ipcRenderer.invoke('files:exportAnnotated', id),
     saveCopy: (id: number): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('files:saveCopy', id),
-    reveal: (id: number): Promise<void> => ipcRenderer.invoke('files:reveal', id)
+    reveal: (id: number): Promise<void> => ipcRenderer.invoke('files:reveal', id),
+    rename: (id: number, name: string): Promise<void> => ipcRenderer.invoke('files:rename', id, name),
+    delete: (id: number): Promise<void> => ipcRenderer.invoke('files:delete', id)
   },
   annotations: {
     list: (fileId: number): Promise<Annotation[]> => ipcRenderer.invoke('annotations:list', fileId),
@@ -198,6 +209,8 @@ const api = {
   },
   tasks: {
     list: (spaceId: number): Promise<TaskSummary[]> => ipcRenderer.invoke('tasks:list', spaceId),
+    listArchived: (spaceId: number): Promise<TaskSummary[]> =>
+      ipcRenderer.invoke('tasks:listArchived', spaceId),
     search: (spaceId: number, query: string): Promise<TaskSummary[]> =>
       ipcRenderer.invoke('tasks:search', spaceId, query),
     get: (id: number): Promise<TaskDetail | null> => ipcRenderer.invoke('tasks:get', id),
@@ -279,7 +292,15 @@ const api = {
       ipcRenderer.invoke('vault:rename', id, name),
     delete: (id: number): Promise<void> => ipcRenderer.invoke('vault:delete', id),
     scheduleClipboardClear: (): Promise<boolean> =>
-      ipcRenderer.invoke('vault:scheduleClipboardClear')
+      ipcRenderer.invoke('vault:scheduleClipboardClear'),
+    // Fires whenever the vault locks or unlocks in the main process —
+    // including the inactivity auto-lock, which the renderer previously had
+    // no way to observe. Returns an unsubscribe function.
+    onChanged: (callback: (status: VaultStatus) => void): (() => void) => {
+      const listener = (_event: unknown, status: VaultStatus): void => callback(status)
+      ipcRenderer.on('vault:changed', listener)
+      return () => ipcRenderer.removeListener('vault:changed', listener)
+    }
   }
 }
 

@@ -38,14 +38,22 @@ function todayDate(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-// Maps an existing rule back to the preset select + custom fields.
-function ruleToState(rule: string | null): { preset: string; n: number; unit: string } {
-  if (!rule) return { preset: '', n: 1, unit: 'DAILY' }
+// Maps an existing rule back to the preset select + custom fields, keeping
+// every component the UI doesn't expose (UNTIL, COUNT, BYxxx) as an opaque
+// tail to re-emit on save. Dropping the tail — the 0.1.0 behaviour — meant
+// that after "delete this and following" capped a series with UNTIL, the next
+// ordinary edit stripped the cap and resurrected every deleted occurrence.
+function ruleToState(rule: string | null): { preset: string; n: number; unit: string; tail: string } {
+  if (!rule) return { preset: '', n: 1, unit: 'DAILY', tail: '' }
   const known = RECURRENCE_PRESETS.find((p) => p.rule === rule)
-  if (known) return { preset: rule, n: 1, unit: 'DAILY' }
+  if (known) return { preset: rule, n: 1, unit: 'DAILY', tail: '' }
   const freq = /FREQ=([A-Z]+)/.exec(rule)?.[1] ?? 'DAILY'
   const interval = Number(/INTERVAL=(\d+)/.exec(rule)?.[1] ?? '1')
-  return { preset: 'CUSTOM', n: interval, unit: freq }
+  const tail = rule
+    .split(';')
+    .filter((part) => part && !/^FREQ=/.test(part) && !/^INTERVAL=/.test(part))
+    .join(';')
+  return { preset: 'CUSTOM', n: interval, unit: freq, tail: tail ? `;${tail}` : '' }
 }
 
 // Create or edit an event (Part 16). When `occurrence` names a slot of a
@@ -90,6 +98,7 @@ export default function EventModal({
   const [preset, setPreset] = useState(ruleState.preset)
   const [customN, setCustomN] = useState(ruleState.n)
   const [customUnit, setCustomUnit] = useState(ruleState.unit)
+  const [busy, setBusy] = useState(false)
   // Non-null while the scope prompt for a recurring edit/delete is showing.
   const [pendingScope, setPendingScope] = useState<'save' | 'delete' | null>(null)
 
@@ -99,23 +108,42 @@ export default function EventModal({
 
   function recurrenceRule(): string | null {
     if (preset === '') return null
-    if (preset === 'CUSTOM') return `FREQ=${customUnit};INTERVAL=${Math.max(1, customN)}`
+    // The preserved tail (UNTIL / COUNT / BYxxx) rides along with any custom
+    // rule so the series cap set by "delete this and following" survives
+    // later edits.
+    if (preset === 'CUSTOM') return `FREQ=${customUnit};INTERVAL=${Math.max(1, customN)}${ruleState.tail}`
     return preset
+  }
+
+  // True when the chosen end wall-time is at or before the start — an
+  // overnight session (22:00–01:00), which ends on the next calendar day.
+  const rollsOvernight = !allDay && endTime <= startTime
+
+  function nextDate(d: string): string {
+    const [y, m, dd] = d.split('-').map(Number)
+    const n = new Date(y, m - 1, dd + 1)
+    return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`
   }
 
   // The form's values as a NewEvent, anchored to a given local date. Per-
   // occurrence saves anchor to the edited slot's date; whole-series saves
-  // ("all") anchor to the master's own date so the cadence stays put.
+  // ("all") anchor to the master's own date so the cadence stays put. An end
+  // time at or before the start rolls to the next day (a 22:00–01:00 block
+  // previously stored end-before-start and rendered with negative duration);
+  // the event carries the machine's IANA zone so recurrence stays on the
+  // wall clock across DST.
   function buildEvent(anchorDate = date): NewEvent {
+    const endAnchor = rollsOvernight ? nextDate(anchorDate) : anchorDate
     return {
       spaceId,
       title: title.trim(),
       description: description.trim() || null,
       start: allDay ? partsToIso(anchorDate, '00:00') : partsToIso(anchorDate, startTime),
-      end: allDay ? null : partsToIso(anchorDate, endTime),
+      end: allDay ? null : partsToIso(endAnchor, endTime),
       allDay,
       location: location.trim() || null,
-      recurrenceRule: recurrenceRule()
+      recurrenceRule: recurrenceRule(),
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
     }
   }
 
@@ -125,28 +153,40 @@ export default function EventModal({
   }
 
   async function save(): Promise<void> {
-    if (title.trim().length === 0) return
+    if (title.trim().length === 0 || busy) return
     if (perOccurrence) {
       setPendingScope('save')
       return
     }
-    if (event) await window.kaseki.events.update(event.id, buildEvent())
-    else await window.kaseki.events.create(buildEvent())
+    setBusy(true)
+    try {
+      if (event) await window.kaseki.events.update(event.id, buildEvent())
+      else await window.kaseki.events.create(buildEvent())
+    } finally {
+      setBusy(false)
+    }
     done()
   }
 
   async function remove(): Promise<void> {
+    if (busy) return
     if (perOccurrence) {
       setPendingScope('delete')
       return
     }
-    if (event) await window.kaseki.events.delete(event.id)
+    setBusy(true)
+    try {
+      if (event) await window.kaseki.events.delete(event.id)
+    } finally {
+      setBusy(false)
+    }
     done()
   }
 
   // Applies a recurring edit or delete to the chosen slice of the series.
   async function applyScope(scope: Scope): Promise<void> {
-    if (!occurrence || !event) return
+    if (!occurrence || !event || busy) return
+    setBusy(true)
     const masterId = event.id
     const from = occurrence.originalStart
     const e = window.kaseki.events
@@ -159,6 +199,7 @@ export default function EventModal({
       else if (scope === 'following') await e.splitSeries(masterId, from, buildEvent())
       else await e.update(masterId, buildEvent(isoToParts(event.start).date))
     }
+    setBusy(false)
     done()
   }
 
@@ -186,6 +227,7 @@ export default function EventModal({
             <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
             <span className="event-dash">–</span>
             <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+            {rollsOvernight && <span className="hint">ends next day</span>}
           </div>
         )}
 
@@ -290,7 +332,7 @@ export default function EventModal({
             <button
               type="button"
               className="primary"
-              disabled={title.trim().length === 0}
+              disabled={title.trim().length === 0 || busy}
               onClick={save}
             >
               {event ? 'Save' : 'Create'}

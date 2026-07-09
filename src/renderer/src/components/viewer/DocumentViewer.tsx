@@ -11,6 +11,7 @@ import MarkdownRenderer from './MarkdownRenderer'
 import MetadataPane from './MetadataPane'
 import AddToBundleModal from './AddToBundleModal'
 import ContextMenu, { type ContextItem } from './ContextMenu'
+import { isEditingTarget, useEscapeLayer } from '../../hooks/useEscapeLayer'
 
 type Scope = 'task' | 'matter' | 'space' | 'all'
 
@@ -69,6 +70,44 @@ export default function DocumentViewer({
   const current = index >= 0 ? files[index] : null
   const zoomable = current?.kind === 'image' || current?.kind === 'pdf'
 
+  const refreshFiles = useCallback(() => {
+    if (bundleId != null) {
+      window.kaseki.bundles.get(bundleId).then((b) => {
+        if (b) setFiles(b.files)
+      })
+    } else {
+      window.kaseki.files.list().then(setFiles)
+    }
+  }, [bundleId])
+
+  // Rename keeps the label honest; delete is the file's first-ever way out —
+  // ingested files were previously permanent (no delete path existed).
+  async function renameFile(fileId: number): Promise<void> {
+    const f = files.find((x) => x.id === fileId)
+    const name = window.prompt('Rename file', f?.name ?? '')
+    if (!name || !name.trim() || name.trim() === f?.name) return
+    await window.kaseki.files.rename(fileId, name.trim())
+    refreshFiles()
+  }
+
+  async function deleteFile(fileId: number): Promise<void> {
+    const f = files.find((x) => x.id === fileId)
+    if (!window.confirm(`Delete “${f?.name ?? 'this file'}”? Attachments, annotations, and links to it are removed too. This cannot be undone.`)) {
+      return
+    }
+    await window.kaseki.files.delete(fileId)
+    if (fileId === currentId) {
+      const i = files.findIndex((x) => x.id === fileId)
+      const next = files[i + 1] ?? files[i - 1]
+      if (next) setCurrentId(next.id)
+      else {
+        onClose()
+        return
+      }
+    }
+    refreshFiles()
+  }
+
   function contextItems(fileId: number): ContextItem[] {
     const f = files.find((x) => x.id === fileId)
     return [
@@ -80,6 +119,8 @@ export default function DocumentViewer({
         onClick: () => window.kaseki.files.exportAnnotated(fileId)
       },
       { label: 'Add to bundle…', onClick: () => setAddToBundleFileId(fileId) },
+      { label: 'Rename…', onClick: () => renameFile(fileId) },
+      { label: 'Delete…', onClick: () => deleteFile(fileId) },
       { label: 'Open containing folder', onClick: () => window.kaseki.files.reveal(fileId) },
       {
         label: 'View metadata',
@@ -103,10 +144,15 @@ export default function DocumentViewer({
     [files]
   )
 
+  useEscapeLayer(true, onClose)
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-      else if (e.key === 'ArrowLeft') step(-1)
+      // Single-letter and arrow shortcuts must not fire while typing — 'b'
+      // in the PDF find bar previously toggled the sidebar, and the arrows
+      // flipped files mid-word.
+      if (isEditingTarget(e)) return
+      if (e.key === 'ArrowLeft') step(-1)
       else if (e.key === 'ArrowRight') step(1)
       else if (e.key === 'b' || e.key === 'B') setSidebarOpen((o) => !o)
       else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
@@ -116,7 +162,7 @@ export default function DocumentViewer({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [step, onClose, currentId])
+  }, [step, currentId])
 
   const canvas = useMemo(() => {
     if (!current) return <div className="viewer-loading">Loading…</div>

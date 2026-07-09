@@ -1,7 +1,12 @@
 import { getDb } from './db/connection'
+import { icsWallStamp, isValidTz, machineTz, ruleForIcsExport } from './recur'
 
 // A master event plus its exceptions, shaped for ICS emission. Times are UTC
-// ISO strings as stored; the builder formats them per RFC 5545.
+// ISO strings as stored; the builder formats them per RFC 5545. Recurring
+// events additionally carry their IANA timezone: they must be exported as
+// wall time with a TZID (DTSTART;TZID=Europe/London:20260603T140000), because
+// an RRULE over a bare UTC DTSTART would make every consumer re-expand at a
+// fixed instant and reintroduce the DST drift this release removes.
 export interface IcsOverride {
   recurrenceId: string
   title: string
@@ -21,6 +26,7 @@ export interface IcsEvent {
   allDay: boolean
   location: string | null
   recurrenceRule: string | null
+  tz: string
   exdates: string[]
   overrides: IcsOverride[]
 }
@@ -75,19 +81,24 @@ function eventLines(
   uid: string,
   e: { title: string; description: string | null; start: string; end: string | null; allDay: boolean; location: string | null },
   dtstamp: string,
-  extra: string[]
+  extra: string[],
+  tzid?: string
 ): string[] {
-  const dtProp = e.allDay ? 'DTSTART;VALUE=DATE' : 'DTSTART'
+  // With a tzid, timed values are emitted as local wall time in that zone
+  // (RFC 5545 §3.3.5 form 3); without one, as absolute UTC as before.
+  const stamp = (iso: string): string =>
+    e.allDay ? formatStamp(iso, true) : tzid ? icsWallStamp(iso, tzid) : formatStamp(iso, false)
+  const dtProp = e.allDay ? 'DTSTART;VALUE=DATE' : tzid ? `DTSTART;TZID=${tzid}` : 'DTSTART'
   const lines = [
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${dtstamp}`,
     ...extra,
-    `${dtProp}:${formatStamp(e.start, e.allDay)}`
+    `${dtProp}:${stamp(e.start)}`
   ]
   if (e.end) {
-    const endProp = e.allDay ? 'DTEND;VALUE=DATE' : 'DTEND'
-    lines.push(`${endProp}:${formatStamp(e.end, e.allDay)}`)
+    const endProp = e.allDay ? 'DTEND;VALUE=DATE' : tzid ? `DTEND;TZID=${tzid}` : 'DTEND'
+    lines.push(`${endProp}:${stamp(e.end)}`)
   }
   lines.push(`SUMMARY:${escapeText(e.title)}`)
   if (e.description) lines.push(`DESCRIPTION:${escapeText(e.description)}`)
@@ -108,19 +119,34 @@ export function buildIcs(events: IcsEvent[], calName: string, dtstamp: string): 
   ]
   for (const e of events) {
     const uid = `kaseki-${e.id}@kaseki.local`
+    // Recurring, timed events are exported in their own zone; one-offs and
+    // all-day events keep the plain UTC / DATE forms.
+    const tzid = e.recurrenceRule && !e.allDay ? e.tz : undefined
     const extra: string[] = []
-    if (e.recurrenceRule) extra.push(`RRULE:${e.recurrenceRule}`)
-    for (const ex of e.exdates) {
-      extra.push(e.allDay ? `EXDATE;VALUE=DATE:${formatStamp(ex, true)}` : `EXDATE:${formatStamp(ex, false)}`)
+    if (e.recurrenceRule) {
+      // Stored UNTILs are wall time in the event's zone; RFC 5545 requires
+      // UTC when the DTSTART carries a TZID, so convert at the boundary.
+      extra.push(`RRULE:${tzid ? ruleForIcsExport(e.recurrenceRule, tzid) : e.recurrenceRule}`)
     }
-    lines.push(...eventLines(uid, e, dtstamp, extra))
+    for (const ex of e.exdates) {
+      extra.push(
+        e.allDay
+          ? `EXDATE;VALUE=DATE:${formatStamp(ex, true)}`
+          : tzid
+            ? `EXDATE;TZID=${tzid}:${icsWallStamp(ex, tzid)}`
+            : `EXDATE:${formatStamp(ex, false)}`
+      )
+    }
+    lines.push(...eventLines(uid, e, dtstamp, extra, tzid))
     // Overrides are linked instances: same UID, a RECURRENCE-ID naming the
     // slot they replace.
     for (const ov of e.overrides) {
       const recId = ov.allDay
         ? `RECURRENCE-ID;VALUE=DATE:${formatStamp(ov.recurrenceId, true)}`
-        : `RECURRENCE-ID:${formatStamp(ov.recurrenceId, false)}`
-      lines.push(...eventLines(uid, ov, dtstamp, [recId]))
+        : tzid
+          ? `RECURRENCE-ID;TZID=${tzid}:${icsWallStamp(ov.recurrenceId, tzid)}`
+          : `RECURRENCE-ID:${formatStamp(ov.recurrenceId, false)}`
+      lines.push(...eventLines(uid, ov, dtstamp, [recId], tzid))
     }
   }
   lines.push('END:VCALENDAR')
@@ -140,6 +166,7 @@ interface ExportRow {
   recurrence_parent_id: number | null
   original_start_at: string | null
   cancelled: number
+  tz: string | null
 }
 
 // Gathers masters (plus their exception children) for the whole calendar, or
@@ -179,6 +206,7 @@ export function gatherIcsEvents(spaceId?: number | null): IcsEvent[] {
         allDay: !!m.all_day,
         location: m.location,
         recurrenceRule: m.recurrence_rule,
+        tz: isValidTz(m.tz) ? m.tz : machineTz(),
         exdates: kids.filter((k) => k.cancelled).map((k) => k.original_start_at as string),
         overrides: kids
           .filter((k) => !k.cancelled)

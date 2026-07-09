@@ -89,6 +89,39 @@ export function unlockDatabase(password: string): boolean {
   return true
 }
 
+// Changes the login (SQLCipher master) password. The provided current
+// password is verified by opening a second, throwaway connection with it —
+// the live handle was keyed at unlock and can't re-prove a password — then
+// the live handle is checkpointed and rekeyed in place. Files on disk are
+// re-encrypted by SQLCipher during the rekey.
+export function rekeyDatabase(currentPassword: string, newPassword: string): boolean {
+  const db = getDb() // throws if locked — rekey requires an unlocked session
+  const probe = new Database(paths.database)
+  try {
+    keyDatabase(probe, currentPassword)
+    probe.prepare('SELECT count(*) FROM sqlite_master').get()
+  } catch (error) {
+    probe.close()
+    if (error instanceof Error && /not a database/.test(error.message)) {
+      log.warn('Rekey attempt with wrong current password')
+      return false
+    }
+    throw error
+  }
+  probe.close()
+  // SQLCipher cannot rekey a WAL-mode database: fold the log into the main
+  // file by switching to the rollback journal, rekey, then restore WAL.
+  db.pragma('wal_checkpoint(TRUNCATE)')
+  db.pragma('journal_mode = DELETE')
+  try {
+    db.pragma(`rekey='${newPassword.replace(/'/g, "''")}'`)
+  } finally {
+    db.pragma('journal_mode = WAL')
+  }
+  log.info('Database rekeyed')
+  return true
+}
+
 export function closeDatabase(): void {
   if (handle) {
     handle.close()

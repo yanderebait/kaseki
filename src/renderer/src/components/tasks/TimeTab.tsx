@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { TimeEntry } from '../../../../shared/types'
-import { fmtDuration, fmtDueDate } from '../../format'
+import { fmtDuration, fmtDueDate, localDateOf } from '../../format'
 import { usePomodoro } from '../../pomodoro'
 import { Clock, Pencil, Play, Plus, Trash } from '../../icons'
 
@@ -47,7 +47,10 @@ export default function TimeTab({
 
   function startEdit(e: TimeEntry): void {
     setEditId(e.id)
-    setDate(e.startAt.slice(0, 10))
+    // Local date, not the ISO string's UTC date — a pomodoro logged at 00:30
+    // CET starts at 23:30Z the previous day, and slicing the ISO pre-filled
+    // (then re-saved) the entry a day early.
+    setDate(localDateOf(e.startAt))
     setHours(Math.floor(e.duration / 60) > 0 ? String(Math.floor(e.duration / 60)) : '')
     setMins(e.duration % 60 > 0 ? String(e.duration % 60) : '')
     setNote(e.note ?? '')

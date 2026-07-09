@@ -58,6 +58,17 @@ export interface NewSpace {
   cheatsheet?: string
 }
 
+// A partial edit to an existing space (v0.2.0 — spaces were previously
+// immutable after creation). Absent fields are left untouched. statusSet is
+// sanitised on write: 'Done' is always kept, since completion logic keys on it.
+export interface SpaceEdit {
+  name?: string
+  accentColor?: string | null
+  icon?: string | null
+  cheatsheet?: string
+  statusSet?: string[]
+}
+
 // The three billing patterns (Part 7), plus 'none' for spaces that don't bill
 // (Personal and the long tail of presets). A space carries a default; a task
 // may override it.
@@ -100,6 +111,9 @@ export interface Task {
   billingMode: BillingMode | null
   billingRate: number | null
   billingUnits: number | null
+  // Set when the task entered 'Done', cleared if it leaves. Fixed-price and
+  // per-unit billing counts in the month of this timestamp.
+  completedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -193,11 +207,15 @@ export interface TimeReportRow {
   taskTitle: string
   spaceId: number
   spaceName: string
-  weekStart: string // 'YYYY-MM-DD', the Monday (UTC) of the week
+  // 'YYYY-MM-DD', the Monday (UTC) of the week — or null for a billable task
+  // with no tracked time in the requested window (fixed-price / per-unit
+  // tasks appear in the report regardless of tracked time).
+  weekStart: string | null
   minutes: number
   billingMode: BillingMode
   billingRate: number | null
   billingUnits: number | null
+  completedAt: string | null
 }
 
 export interface TaskTemplate {
@@ -244,6 +262,12 @@ export interface ActivityEntry {
   oldValue?: string | null
   newValue?: string | null
   createdAt: string
+  // Context resolved at read time so the feed can say what happened to what,
+  // and route a click to it (null title = the item has since been deleted).
+  title?: string | null
+  spaceId?: number | null
+  spaceName?: string | null
+  accent?: string | null
 }
 
 // Renderer-facing launcher item. The actual path/URL stays in the main
@@ -325,6 +349,9 @@ export interface CalendarEvent {
   location: string | null
   recurrenceRule: string | null
   completed: boolean
+  // IANA timezone the event recurs in (v0.2.0). Recurrence fires at the same
+  // wall-clock time in this zone, so a weekly 14:00 stays 14:00 across DST.
+  tz: string
 }
 
 export interface NewEvent {
@@ -336,6 +363,8 @@ export interface NewEvent {
   allDay?: boolean
   location?: string | null
   recurrenceRule?: string | null
+  // Omitted → the machine's current zone.
+  tz?: string
 }
 
 // One concrete occurrence (after expanding recurrence and applying

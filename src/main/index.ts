@@ -15,7 +15,7 @@ import { getPreset, presetToSpace } from '../shared/presets'
 import { writeFileSync } from 'node:fs'
 import { ensureDataDirectories, paths } from './paths'
 import { registerFileProtocol, registerFileScheme } from './fileProtocol'
-import { log } from './logger'
+import { log, pruneOldLogs } from './logger'
 import { appVersion } from './version'
 import { installCrashHandlers } from './crashReport'
 
@@ -35,16 +35,31 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      // The preload only uses contextBridge + ipcRenderer, both fully
+      // sandbox-compatible, so the renderer runs in the Chromium sandbox.
+      sandbox: true
     }
   })
 
   window.on('ready-to-show', () => window.show())
 
+  // The renderer never legitimately navigates away from the app bundle —
+  // block anything else (defence in depth; nothing in the app links out via
+  // navigation, but a crafted document shouldn't get to try).
+  window.webContents.on('will-navigate', (event, url) => {
+    const dev = process.env.ELECTRON_RENDERER_URL
+    if (dev && url.startsWith(dev)) return
+    if (url.startsWith('file://')) return
+    event.preventDefault()
+    log.warn('Blocked navigation', { url })
+  })
+
   // Any window.open / target=_blank goes to the OS browser, never a new
   // Electron window — the renderer must stay confined to Kaseki's own UI.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    // Only web links reach the OS; file://, smb:// and friends are dropped.
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    else log.warn('Blocked openExternal', { url })
     return { action: 'deny' }
   })
 
@@ -82,6 +97,7 @@ if (!gotLock) {
 
     registerIpcHandlers()
     installCrashHandlers()
+    pruneOldLogs()
     devBootstrap()
     createWindow()
 

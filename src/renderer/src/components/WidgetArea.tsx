@@ -68,9 +68,14 @@ export default function WidgetArea(): React.JSX.Element {
             <span className="widget-preview">—</span>
           </div>
         ))}
-        <button type="button" className="widget-add">
+        <button
+          type="button"
+          className="widget-add"
+          disabled
+          title="Custom widgets are planned — this area is a preview."
+        >
           <Plus size={18} />
-          Add widget
+          Add widget (coming soon)
         </button>
       </div>
     </section>
