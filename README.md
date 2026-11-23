@@ -24,8 +24,8 @@ Data loss is permanent. There is no recovery link, no support desk, no human at 
 
 — yanderebait, Common Plebeian of the Masses
 
-## Fuck Microslop
+## No more rented software
 
-And fuck every EULA you scrolled past, every "we've updated our terms," every dark pattern, every subscription that auto-renews into your overdraft, every company that called you "the user" because "the person" would have made it harder to do what they did to you. You are not a data unit. You are not a seat. You are not a monthly recurring revenue line waiting to be optimised.
+Enough of every EULA you scrolled past, every "we've updated our terms," every dark pattern, every subscription that auto-renews into your overdraft, every company that called you "the user" because "the person" would have made it harder to do what they did to you. You are not a data unit. You are not a seat. You are not a monthly recurring revenue line waiting to be optimised.
 
 Stop paying the rent. Build your own. Own it forever.
