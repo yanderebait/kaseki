@@ -17,12 +17,21 @@ import { ensureDataDirectories, paths } from './paths'
 import { registerFileProtocol, registerFileScheme } from './fileProtocol'
 import { log, pruneOldLogs } from './logger'
 import { appVersion } from './version'
-import { installCrashHandlers } from './crashReport'
+import { installCrashHandlers, markWindowShown, startupFailed } from './crashReport'
 import { startBackgroundTasks, stopBackgroundTasks } from './background'
 import { runLaunchUpdateCheck } from './updates'
 
+// A startup failure must never be silent (0.3.2 died before its window
+// appeared, with no dialog): until the window is shown, any uncaught error
+// shows an error dialog and exits. The self-test reports its own failures.
+if (process.env.KASEKI_SELFTEST !== '1') installCrashHandlers()
+
 // Must run before app ready.
 registerFileScheme()
+
+// How long the main window may take to appear before startup counts as failed
+// (rather than leaving a windowless process holding the single-instance lock).
+const WINDOW_TIMEOUT_MS = 60 * 1000
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -43,7 +52,34 @@ function createWindow(): void {
     }
   })
 
-  window.on('ready-to-show', () => window.show())
+  const watchdog = setTimeout(
+    () => startupFailed(new Error(`The window did not appear within ${WINDOW_TIMEOUT_MS / 1000} seconds.`)),
+    WINDOW_TIMEOUT_MS
+  )
+  let shown = false
+  let loaded = false
+  // KASEKI_SMOKE=1 (release.yml's packaged-build check): quit with exit code 0
+  // once the window is shown and its page has loaded. Nothing else differs.
+  const smokeDone = (): void => {
+    if (process.env.KASEKI_SMOKE !== '1' || !shown || !loaded) return
+    log.info('Smoke run: window loaded, quitting')
+    process.stdout.write('KASEKI_SMOKE_OK\n')
+    app.quit()
+  }
+  window.once('ready-to-show', () => {
+    clearTimeout(watchdog)
+    window.show()
+    shown = true
+    markWindowShown()
+    smokeDone()
+  })
+  window.webContents.once('did-finish-load', () => {
+    loaded = true
+    smokeDone()
+  })
+  window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (isMainFrame && !shown) startupFailed(new Error(`The window failed to load ${url}: ${description} (${code})`))
+  })
 
   // The renderer never legitimately navigates away from the app bundle —
   // block anything else (defence in depth; nothing in the app links out via
@@ -87,30 +123,36 @@ if (!gotLock) {
   })
 
   app.whenReady().then(async () => {
-    ensureDataDirectories()
-    registerFileProtocol()
-    log.info('Kaseki starting', { version: appVersion, dataRoot: paths.root })
-
     if (process.env.KASEKI_SELFTEST === '1') {
+      ensureDataDirectories()
+      registerFileProtocol()
+      log.info('Kaseki starting', { version: appVersion, dataRoot: paths.root })
       const { runSelfTest } = await import('./selftest')
       app.exit(await runSelfTest())
       return
     }
 
-    registerIpcHandlers()
-    installCrashHandlers()
-    pruneOldLogs()
-    devBootstrap()
-    createWindow()
-    startBackgroundTasks()
-    // Only does anything if the dev bootstrap already unlocked the database;
-    // otherwise the check runs from the auth:unlock handler.
-    runLaunchUpdateCheck()
+    try {
+      ensureDataDirectories()
+      registerFileProtocol()
+      log.info('Kaseki starting', { version: appVersion, dataRoot: paths.root })
+      registerIpcHandlers()
+      pruneOldLogs()
+      devBootstrap()
+      createWindow()
+      startBackgroundTasks()
+      // No update check here: the database is still locked at this point
+      // (reading its preference threw and killed 0.3.2). It runs from
+      // auth:unlock / auth:setup, or from devBootstrap.
+    } catch (error) {
+      startupFailed(error)
+      return
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
-  })
+  }).catch(startupFailed)
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
@@ -151,6 +193,8 @@ function devBootstrap(): void {
     unlockDatabase(password)
   }
   log.info('Dev bootstrap applied')
+  // The real paths run the once-per-launch check from auth:unlock/auth:setup.
+  runLaunchUpdateCheck()
 }
 
 // Development-only headless screenshot: with KASEKI_DEV_SHOT=<path> set, wait

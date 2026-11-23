@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.3
+
+A fix for 0.3.2, which did not start. Self-test suite: 425 to 435 checks.
+
+- **0.3.2 did not start.** Double-clicking it did nothing: no window, no
+  error. At startup it ran the new update check before you had unlocked, and
+  reading the update setting from the still-locked database failed. The crash
+  handler then tried to read the crash-reporting setting from the same locked
+  database, failed too, and the app closed before its window appeared. Every
+  launch hit this, on first run and with an existing database. Your data was
+  never touched.
+- **The fix.** The update check now runs only after you unlock (or create)
+  the database, once per launch, as intended. Crash reporting counts as off
+  while the database is locked, and the crash handlers can no longer fail.
+- **A startup failure is never silent again.** If Kaseki hits an error before
+  its window appears, it shows an error dialog naming the log folder and
+  closes, instead of disappearing or leaving a hidden process behind.
+- **Releases are checked before they ship.** The release build now runs the
+  packaged Windows app, first with no data and then with a locked database,
+  and fails unless it reaches a loaded window.
+- Because 0.3.2 never got as far as the update prompt, it cannot update
+  itself: install 0.3.3 from the releases page over the top of it.
+
 ## 0.3.2
 
 Updates from inside the app. Self-test suite: 417 to 425 checks.

@@ -97,7 +97,7 @@ import {
   updateCheckEnabled,
   launchCheckDue
 } from '../shared/updates'
-import { checkForUpdate, parseLatestRelease, setUpdateCheckEnabled, updateStatus } from './updates'
+import { checkForUpdate, parseLatestRelease, runLaunchUpdateCheck, setUpdateCheckEnabled, updateStatus } from './updates'
 import {
   DEFAULT_NOTIFICATIONS,
   digestBody,
@@ -128,7 +128,8 @@ import {
   shiftInstantByWallDelta
 } from './recur'
 import { normalizeArchivedStatuses } from './db/migrations'
-import { buildEvent, crashConfig, parseDsn } from './crashReport'
+import { buildEvent, crashConfig, parseDsn, reportError } from './crashReport'
+import { backgroundTick } from './background'
 import { homedir } from 'node:os'
 import { pmText, pmToMarkdown } from './prosemirror'
 import { BIP39_WORDLIST } from './vault/wordlist'
@@ -253,6 +254,26 @@ function minimalPdf(): Buffer {
 // Runs when KASEKI_SELFTEST=1 (combine with KASEKI_DATA_DIR to avoid
 // touching real data). Exercises the encrypted database lifecycle in the
 // real Electron process and reports via exit code.
+// v0.3.3: 0.3.2 never started, because the startup code read a preference
+// from the still-locked database and the crash handler then did the same.
+// Everything reachable at startup (or from the error handlers) before the
+// password is entered must cope with the database not being open.
+function lockedStartupChecks(when: string, check: (name: string, pass: boolean) => void): void {
+  const noThrow = (fn: () => unknown): boolean => {
+    try {
+      fn()
+      return true
+    } catch {
+      return false
+    }
+  }
+  check(`locked startup (${when}): getDb() itself still refuses`, !noThrow(() => getDb()))
+  check(`locked startup (${when}): the launch update check does not throw`, noThrow(() => runLaunchUpdateCheck()))
+  check(`locked startup (${when}): crash reporting reads as off`, noThrow(() => crashConfig()) && crashConfig().enabled === false)
+  check(`locked startup (${when}): reportError does not throw`, noThrow(() => reportError(new Error('locked test'), 'main')))
+  check(`locked startup (${when}): the background tick does not throw`, noThrow(() => backgroundTick()))
+}
+
 export async function runSelfTest(): Promise<number> {
   const failures: string[] = []
   const check = (name: string, pass: boolean): void => {
@@ -262,6 +283,7 @@ export async function runSelfTest(): Promise<number> {
 
   try {
     check('starts in setup state', getAuthStatus() === 'setup')
+    lockedStartupChecks('before the database exists', check)
 
     createDatabase('self-test-password', 'Tester')
     check('create unlocks', getAuthStatus() === 'unlocked')
@@ -1574,6 +1596,7 @@ export async function runSelfTest(): Promise<number> {
 
     closeDatabase()
     check('close locks', getAuthStatus() === 'locked')
+    lockedStartupChecks('with a locked database', check)
 
     const header = readFileSync(paths.database).subarray(0, 15).toString('utf8')
     check('file is encrypted at rest', header !== 'SQLite format 3')

@@ -70,6 +70,63 @@ jobs:
           grep -q "^path: ${exe}$" dist/latest.yml || { echo "latest.yml does not name ${exe}" >&2; exit 1; }
           grep -q "url: ${exe}$" dist/latest.yml || { echo "latest.yml files[] does not name ${exe}" >&2; exit 1; }
 
+      # Run the packaged self-test inside the packaged Windows app. It leaves an
+      # encrypted, closed (locked) database in its data folder, which the
+      # second smoke launch below starts against.
+      - name: Packaged self-test
+        run: |
+          data="${RUNNER_TEMP}/kaseki-selftest"
+          rm -rf "${data}" "${data}-backups"
+          set +e
+          KASEKI_SELFTEST=1 KASEKI_DATA_DIR="${data}" timeout 600 ./dist/win-unpacked/Kaseki.exe > selftest.log 2>&1
+          code=$?
+          set -e
+          echo "exit code ${code}; $(grep -c '^PASS' selftest.log || true) passed"
+          grep '^FAIL' selftest.log || true
+          if [ "${code}" -ne 0 ] || grep -q '^FAIL' selftest.log; then
+            cat selftest.log >&2
+            exit 1
+          fi
+          test -f "${data}/kaseki.db" || { echo "self-test left no database" >&2; exit 1; }
+
+      # 0.3.2 shipped without starting: it died on launch, before its window
+      # appeared. Launch the packaged app through its normal startup path (no
+      # dev password, nothing unlocked) and require it to reach a loaded window
+      # and exit cleanly. KASEKI_SMOKE=1 only makes it quit with exit code 0
+      # once the window has loaded; a startup error exits 1 instead. Run once
+      # with an empty data folder (first launch) and once against the locked
+      # database the self-test left behind (every later launch).
+      - name: Smoke test the packaged app starts
+        run: |
+          smoke() {
+            local label="$1" data="$2"
+            echo "--- ${label}"
+            set +e
+            KASEKI_SMOKE=1 KASEKI_DATA_DIR="${data}" timeout 120 ./dist/win-unpacked/Kaseki.exe > smoke.log 2>&1
+            local code=$?
+            set -e
+            cat smoke.log
+            cat "${data}"/logs/*.log 2>/dev/null || true
+            if [ "${code}" -ne 0 ]; then
+              echo "Packaged app failed to start (${label}): exit code ${code}" >&2
+              exit 1
+            fi
+            grep -q 'Smoke run: window loaded' "${data}"/logs/*.log || {
+              echo "Packaged app exited without loading its window (${label})" >&2
+              exit 1
+            }
+            if grep -q '\[ERROR\]' "${data}"/logs/*.log; then
+              echo "Packaged app logged an error while starting (${label})" >&2
+              exit 1
+            fi
+          }
+          rm -rf "${RUNNER_TEMP}/kaseki-smoke-empty"
+          smoke "empty data folder" "${RUNNER_TEMP}/kaseki-smoke-empty"
+          # Only this launch's log lines matter for the locked run.
+          rm -rf "${RUNNER_TEMP}/kaseki-selftest/logs"
+          smoke "locked database" "${RUNNER_TEMP}/kaseki-selftest"
+          test -f "${RUNNER_TEMP}/kaseki-selftest/kaseki.db"
+
       # Keep the installer, its blockmap and latest.yml as a downloadable
       # artifact on every run.
       - name: Upload installer artifact

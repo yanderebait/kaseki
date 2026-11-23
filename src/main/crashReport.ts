@@ -1,7 +1,8 @@
-import { app } from 'electron'
+import { app, dialog } from 'electron'
 import { randomBytes } from 'node:crypto'
 import { homedir, release as osRelease } from 'node:os'
 import { getPreferences } from './db/prefs'
+import { getAuthStatus } from './db/connection'
 import { paths } from './paths'
 import { appVersion } from './version'
 import { log } from './logger'
@@ -19,13 +20,23 @@ interface CrashConfig {
   dsn: string
 }
 
+// The setting lives in the encrypted database, so while it is locked (the
+// password screen, or before it exists) reporting is simply off. This must
+// never throw: it runs inside the process-level error handlers, and an error
+// thrown there kills the app (0.3.2 died this way on every launch).
 export function crashConfig(): CrashConfig {
-  const raw = getPreferences().crashReporting
-  if (raw && typeof raw === 'object') {
-    const c = raw as Record<string, unknown>
-    return { enabled: c.enabled === true, dsn: typeof c.dsn === 'string' ? c.dsn : '' }
+  const off = { enabled: false, dsn: '' }
+  if (getAuthStatus() !== 'unlocked') return off
+  try {
+    const raw = getPreferences().crashReporting
+    if (raw && typeof raw === 'object') {
+      const c = raw as Record<string, unknown>
+      return { enabled: c.enabled === true, dsn: typeof c.dsn === 'string' ? c.dsn : '' }
+    }
+  } catch {
+    // fall through: unreadable settings mean reporting is off
   }
-  return { enabled: false, dsn: '' }
+  return off
 }
 
 // Strip the user's home directory and the Kaseki data dir from any string, so
@@ -111,27 +122,76 @@ async function send(dsn: SentryDsn, event: Record<string, unknown>): Promise<voi
   }
 }
 
+// Never throws (it is called from the process-level error handlers).
 export function reportError(value: unknown, source: 'main' | 'renderer'): void {
-  const cfg = crashConfig()
-  if (!cfg.enabled || !cfg.dsn) return
-  const dsn = parseDsn(cfg.dsn)
-  if (!dsn) return
-  void send(dsn, buildEvent(value, source))
+  try {
+    const cfg = crashConfig()
+    if (!cfg.enabled || !cfg.dsn) return
+    const dsn = parseDsn(cfg.dsn)
+    if (!dsn) return
+    void send(dsn, buildEvent(value, source))
+  } catch {
+    // Best effort — reporting must never itself take the app down.
+  }
 }
 
-// Installed once at startup. Reporting is gated inside reportError, so the
-// handlers are harmless when the feature is off (they only add logging).
+// --- Startup failures --------------------------------------------------------
+// Until the main window has been shown, any uncaught error means the user
+// would otherwise be left with no window at all (and, on Windows, possibly a
+// windowless process holding the single-instance lock, so every later launch
+// exits silently). So before the window is shown, an error is fatal: it is
+// logged, shown in an error dialog, and the process exits.
+
+let windowShown = false
+let failing = false
+
+export function markWindowShown(): void {
+  windowShown = true
+}
+
+export function startupFailed(error: unknown): void {
+  if (failing) return
+  failing = true
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  try {
+    log.error('Startup failed', error)
+  } catch {
+    // ignore: the dialog and exit below must still happen
+  }
+  process.stderr.write(`Kaseki failed to start: ${detail}\n`)
+  // In the CI smoke run nobody is there to dismiss a dialog; the non-zero
+  // exit and stderr are the signal.
+  if (process.env.KASEKI_SMOKE !== '1') {
+    try {
+      dialog.showErrorBox(
+        'Kaseki could not start',
+        `Kaseki hit an error while starting and has to close.\n\n${scrub(detail)}\n\n` +
+          `A log file with details is in ${paths.logs}.`
+      )
+    } catch {
+      // ignore
+    }
+  }
+  app.exit(1)
+}
+
+// Installed first thing at startup. Reporting is gated inside reportError, so
+// the handlers are harmless when the feature is off (they only add logging).
 export function installCrashHandlers(): void {
-  process.on('uncaughtException', (err) => {
-    log.error('Uncaught exception', err)
-    reportError(err, 'main')
-  })
-  process.on('unhandledRejection', (reason) => {
-    log.error('Unhandled rejection', reason)
-    reportError(reason, 'main')
-  })
+  const handle = (label: string, value: unknown): void => {
+    try {
+      log.error(label, value)
+    } catch {
+      // ignore
+    }
+    reportError(value, 'main')
+    if (!windowShown) startupFailed(value)
+  }
+  process.on('uncaughtException', (err) => handle('Uncaught exception', err))
+  process.on('unhandledRejection', (reason) => handle('Unhandled rejection', reason))
   app.on('render-process-gone', (_event, _wc, details) => {
     log.error('Render process gone', details)
     reportError(new Error(`Renderer process gone: ${details.reason}`), 'renderer')
+    if (!windowShown) startupFailed(new Error(`The window's renderer process exited: ${details.reason}`))
   })
 }

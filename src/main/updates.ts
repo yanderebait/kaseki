@@ -158,15 +158,26 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
 // the same launch never checks again.
 let launchCheckRan = false
 
+// Must only be called after a successful unlock or create (auth:unlock,
+// auth:setup, the dev bootstrap). It still checks the lock itself and never
+// throws: 0.3.2 called it at app start, where reading the preference from the
+// still-locked database threw and killed the app before its window appeared.
 export function runLaunchUpdateCheck(): void {
-  const due = launchCheckDue({
-    unlocked: getAuthStatus() === 'unlocked',
-    enabled: stored().enabled,
-    alreadyRan: launchCheckRan
-  })
-  if (!due) return
-  launchCheckRan = true
-  void checkForUpdate().catch((error) => log.warn('Update check failed', String(error)))
+  try {
+    const unlocked = getAuthStatus() === 'unlocked'
+    const due = launchCheckDue({
+      unlocked,
+      // Only read the preference once unlocked: getPreferences() throws while
+      // the database is locked.
+      enabled: unlocked && stored().enabled,
+      alreadyRan: launchCheckRan
+    })
+    if (!due) return
+    launchCheckRan = true
+    void checkForUpdate().catch((error) => log.warn('Update check failed', String(error)))
+  } catch (error) {
+    log.warn('Launch update check skipped', String(error))
+  }
 }
 
 // --- Download and install (only after the user clicks "Update now") --------
