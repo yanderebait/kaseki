@@ -9,10 +9,19 @@ import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useEscapeLayer } from '../hooks/useEscapeLayer'
 import LegalModal from './legal/LegalModal'
 import { ShortcutsList } from './ShortcutsHelp'
+import {
+  BackupPane,
+  LauncherPane,
+  NotificationsPane,
+  SearchPane,
+  UpdatesPane,
+  WeatherPane
+} from './settings/MorePanes'
 
-// The settings categories (Part 14). Phase 1 ships the panel shell: the
-// category sidebar plus content. General (theme) and About (version) have
-// real content; the rest are placeholders their owning phases fill in.
+// The settings categories (Part 14). Every category has a real pane as of
+// v0.3.0; the six that were "arrive in a later phase" placeholders until then
+// (launcher, backup, notifications, search, updates, weather) live in
+// ./settings/MorePanes.
 const CATEGORIES = [
   'General',
   'Profession spaces',
@@ -80,8 +89,13 @@ function CategoryPane({ category }: { category: string }): React.JSX.Element {
   if (category === 'Sensitive folder') return <SensitivePane />
   if (category === 'Keyboard shortcuts') return <ShortcutsPane />
   if (category === 'Crash reporting') return <CrashReportingPane />
-  if (category === 'About') return <AboutPane />
-  return <p className="hint">Settings for {category.toLowerCase()} arrive in a later phase.</p>
+  if (category === 'Application launcher') return <LauncherPane />
+  if (category === 'Backup and export') return <BackupPane />
+  if (category === 'Notifications') return <NotificationsPane />
+  if (category === 'Search') return <SearchPane />
+  if (category === 'Updates') return <UpdatesPane />
+  if (category === 'Weather widget') return <WeatherPane />
+  return <AboutPane />
 }
 
 // Crash reporting (Part 14 #12): off by default, opt-in, sends only sanitised

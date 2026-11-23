@@ -989,3 +989,77 @@ button.primary:hover:not(:disabled) {
   color: #d4537e;
   border-color: #d4537e;
 }
+
+/* v0.3.0 — the settings pages that were placeholders: launcher, backup,
+   notifications, search, updates, weather. */
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-3);
+}
+.settings-btn {
+  padding: var(--gap-2) var(--gap-5);
+  background: transparent;
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: var(--radius-button);
+  color: var(--text-secondary);
+  font-size: var(--text-hint);
+  cursor: pointer;
+}
+.settings-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.settings-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.settings-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+}
+.settings-search-row {
+  display: flex;
+  gap: var(--gap-3);
+}
+.settings-search-row .settings-input {
+  flex: 1;
+  min-width: 0;
+}
+.settings-place-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-place {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap-5);
+  width: 100%;
+  padding: var(--gap-3) var(--gap-4);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-button);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-place:hover {
+  background: var(--bg-tertiary);
+}
+.settings-launcher {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+}

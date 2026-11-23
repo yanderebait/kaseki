@@ -1,11 +1,16 @@
 # Kaseki — Self-Hosting Guide
 
-Kaseki is built to be *yours*. It runs entirely on your machine, stores everything in one folder, and talks to no external service. This guide covers installing it, where your data lives, backing it up, and the privacy and encryption details.
+Kaseki is built to be *yours*. It runs entirely on your machine, stores everything in one folder, and talks to no external service unless you switch one of its three optional network features on. This guide covers installing it, where your data lives, backing it up, and the privacy and encryption details.
 
 ## What "self-hosted" means here
 
 - **No accounts, no cloud, no sync.** Kaseki never phones home. It does not sync to Google, Dropbox, Outlook, or anything else.
-- **No telemetry by default.** The only outbound network feature is crash reporting, which is **off** until you turn it on and point it at *your own* Sentry instance (see below).
+- **No telemetry, and nothing outbound by default.** Kaseki has exactly three optional network features, and all three are **off** until you turn them on:
+  - **Crash reporting** — sanitised error reports to *your own* Sentry instance (see below).
+  - **Update check** — once a day, asks GitHub whether a newer release exists (see [Updates](#updates)).
+  - **Weather widget** — asks Open-Meteo for the forecast at a place you choose (see [Weather widget](#weather-widget-optional)).
+
+  With all three off, Kaseki makes no network requests at all.
 - **The file system is the source of truth.** To back up Kaseki you copy a folder. To move machines you copy that folder. To delete everything you delete that folder. You never need the app's UI to manage your data.
 
 ## Installing
@@ -55,23 +60,43 @@ A caveat inherent to any desktop app: while Kaseki runs, decrypted data is in pr
 
 ## Backup and restore
 
-Because the whole install is one directory, backup is a copy:
+Because the whole install is one directory, a backup is a copy of it. Kaseki can make that copy for you, or you can make it by hand.
+
+### Built-in backup (Settings → Backup and export)
+
+- **Back up now** copies the database and the `uploads/`, `sensitive/`, `backgrounds/`, and `icons/` folders into a new folder named `Kaseki-backup-YYYY-MM-DD-HHMMSS` inside the backup folder you choose (the first backup asks for one). It is safe to run while Kaseki is open: the database's write-ahead log is folded into the main file first, so the copy is complete. Logs are left out. Each backup carries a small `kaseki-backup.json` manifest (version, date, file count, size).
+- **Back up automatically** — daily or weekly. Scheduled backups run while Kaseki is open and unlocked; if one fell due while the app was closed, it runs within a minute of the next unlock. A failed scheduled backup (a drive unplugged, a full disk) is shown in the pane and retried hourly.
+- **Backups to keep** — after each backup, the oldest `Kaseki-backup-…` folders beyond this number are deleted. Nothing else in the backup folder is ever touched, so it can share a folder with other files.
+- The backup folder must be **outside** the data directory (otherwise each backup would contain the last one); Kaseki refuses one inside it.
+- Nothing is decrypted to make a backup. `kaseki.db` and `sensitive/` are copied exactly as they sit on disk, so the backup is as encrypted as the live data — and as useless without your login password.
+
+**Restore from a backup…** asks for a backup folder (a built-in backup, or a hand-made copy of the data directory — anything with a `kaseki.db` in it), confirms, then replaces your data with the backup's and restarts. Unlock with the login password that backup was made under. Your current data is not deleted: it is moved into `restore-undo/before-restore-…` inside the data directory, so restoring the wrong backup can be undone. Only the most recent undo copy is kept. To restore *from* that undo copy, copy it out of the data directory first — Kaseki won't restore from a folder inside its own data directory.
+
+### By hand
 
 1. **Quit Kaseki** (so the database isn't mid-write).
-2. **Copy the data directory** above to your backup location — an external drive, a NAS, an encrypted archive. The `kaseki.db` and `sensitive/` contents are already encrypted, so the backup is encrypted too.
+2. **Copy the data directory** above to your backup location — an external drive, a NAS, an encrypted archive.
 3. **Restore** by copying it back into place on any machine and launching Kaseki with the same login password (and sensitive-folder passcode, or recovery phrase).
 
-Keep your login password and the recovery phrase somewhere separate from the backup — without them an encrypted backup is just noise (which is the point).
+Either way, keep your login password and the recovery phrase somewhere separate from the backup — without them an encrypted backup is just noise (which is the point).
 
-> A built-in backup/restore and scheduled-backup UI is planned; until then, the copy-the-folder method above is the supported path and is all you need.
+### Export
+
+Backups are only readable by Kaseki. For a copy other programs can read, **Settings → Backup and export** also exports **all tasks as CSV** (every space, archived tasks and spaces included and marked) and the **calendar as `.ics`**. These files are not encrypted.
 
 ## Crash reporting (optional)
 
 Off by default. In **Settings → Crash reporting** you can turn it on and paste a **Sentry DSN** for your own Sentry instance. When enabled, an unhandled error sends a **sanitised** report — the app, OS, and Electron versions and the error's type, message, and stack — and nothing else. Your home directory and the data-directory path are scrubbed from every string, and no task content, notes, file contents, or names are ever included. **Review what would be sent** in the same pane shows the exact payload before you enable it. There is no default or shared endpoint; reports only ever go where you point them.
 
+## Weather widget (optional)
+
+Off by default, and not on the home screen until you add it. In **Settings → Weather widget** you switch it on and search for a place; the search sends the name you type to Open-Meteo's geocoding service. Once a place is chosen, the widget asks Open-Meteo for the current conditions and a short forecast at those coordinates, in your chosen units — no account, no API key, nothing from your data. A forecast is reused for half an hour. Switching the widget off stops all requests.
+
 ## Updates
 
-Kaseki does not auto-update from source builds. When packaged builds are published, update by installing the new version — your data directory is untouched by an update.
+Kaseki never downloads or installs updates itself. **Settings → Updates** has an optional **daily update check**, off by default: when on, Kaseki asks GitHub's public releases API (`api.github.com/repos/yanderebait/kaseki/releases/latest`) at most once a day whether a newer version exists. The request carries a `kaseki/<version>` User-Agent and nothing else. If there is a newer release, the pane says so and links to its release page; **Check now** runs the same check on demand.
+
+To update, install the new version (or pull and rebuild from source). Your data directory is untouched by an update; if a release changes the database, its migration runs on first launch. Making a backup first is cheap insurance.
 
 ## Uninstalling
 

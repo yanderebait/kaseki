@@ -18,6 +18,7 @@ import { registerFileProtocol, registerFileScheme } from './fileProtocol'
 import { log, pruneOldLogs } from './logger'
 import { appVersion } from './version'
 import { installCrashHandlers } from './crashReport'
+import { startBackgroundTasks, stopBackgroundTasks } from './background'
 
 // Must run before app ready.
 registerFileScheme()
@@ -100,6 +101,7 @@ if (!gotLock) {
     pruneOldLogs()
     devBootstrap()
     createWindow()
+    startBackgroundTasks()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -110,7 +112,10 @@ if (!gotLock) {
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('will-quit', () => closeDatabase())
+  app.on('will-quit', () => {
+    stopBackgroundTasks()
+    closeDatabase()
+  })
 }
 
 // Development-only convenience: with KASEKI_DEV_PASSWORD set, create or

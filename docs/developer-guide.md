@@ -26,9 +26,8 @@ Three processes, three source roots:
 
 - **One SQLCipher database** at `<data>/kaseki.db`, opened with the login password as the key. The renderer can't reach it.
 - **Forward-only migrations** in `src/main/db/migrations.ts`, tracked by `PRAGMA user_version`. Never edit a shipped migration — append a new one. (There are seven: core schema, launcher columns, calendar recurrence, the vault, legal acceptance, task templates, and task billing columns.)
-- **`src/main/db/*.ts`** — one module per domain (`tasks`, `spaces`, `events`, `knowledge`, `files`, `bundles`, `links`, `launcher`, `search`, `prefs`, `connection`). Each owns its SQL.
+- **`src/main/db/*.ts`** — one module per domain (`tasks`, `spaces`, `events`, `knowledge`, `files`, `bundles`, `links`, `launcher`, `search`, `upcoming`, `prefs`, `connection`). Each owns its SQL.
 - **Content-addressed files** — uploads are stored under `<data>/uploads/<sha256>`; the DB holds metadata, so duplicates dedupe automatically.
-- The schema is documented in Appendix C of `kaseki-spec.md`.
 
 ## Conventions
 
@@ -36,7 +35,6 @@ Three processes, three source roots:
 - **The sensitive folder's plaintext never touches disk.** Decrypted bytes are read into memory and served over a protocol namespace only while unlocked; there is no print/save/export for vault files for this reason.
 - **`window.kaseki` is the only surface.** If the renderer needs something from the OS or DB, add an explicit bridge method — never widen the boundary.
 - **Design tokens, not literals.** Colours, spacing, radii, and the type scale are CSS variables in `src/renderer/src/styles/tokens.css`; components consume the variables.
-- **`kaseki-spec.md` is the design record.** Each phase ends by reconciling the spec with what shipped, so the spec stays an accurate account, not a wish list.
 
 ## Project layout
 
@@ -46,7 +44,6 @@ src/
   preload/     the window.kaseki bridge
   renderer/src components/, screens/, hooks/, styles/, *.ts(x)
   shared/      types.ts, presets.ts, billing.ts, legal.ts
-kaseki-spec.md the full design specification (Parts 1–20, Appendices A–C)
 docs/          these guides
 ```
 
@@ -70,7 +67,7 @@ Kaseki's tests are a single self-contained harness, not a test runner. `src/main
 KASEKI_DATA_DIR=/tmp/kaseki-test KASEKI_SELFTEST=1 ./node_modules/.bin/electron out/main/index.js
 ```
 
-It covers migrations, task CRUD and the DAG cycle guard, tags and custom fields, scoped and global search, time tracking and the billing math, the vault crypto primitives, recurrence expansion, Markdown serialization, crash-report sanitisation, and more. Add a check next to the related ones when you add data-layer behaviour; UI is verified by screenshot.
+It covers migrations, task CRUD and the DAG cycle guard, tags and custom fields, scoped and global search, time tracking and the billing math, the vault crypto primitives, recurrence expansion, Markdown serialization, crash-report sanitisation, the widget, notification, backup, and update logic (with no network calls), backup and restore against the real data folder, and more. Add a check next to the related ones when you add data-layer behaviour; UI is verified by screenshot.
 
 ## Development seams
 
@@ -86,4 +83,4 @@ Gated behind `!app.isPackaged`, several environment variables make the app launc
 
 ## Adding a feature
 
-The repeatable pattern: read the relevant spec section; build the data layer first (a `db/` module + self-tests) so it's verified before any UI; extend `types.ts`, `ipc.ts`, and the preload bridge together; build the UI in small commits, each leaving the app working and screenshot-verified; then reconcile `kaseki-spec.md` with what shipped.
+The repeatable pattern: build the data layer first (a `db/` module + self-tests) so it's verified before any UI; extend `types.ts`, `ipc.ts`, and the preload bridge together; build the UI in small commits, each leaving the app working and screenshot-verified; then update the user and self-hosting guides and the changelog with what shipped.

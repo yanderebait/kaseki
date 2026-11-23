@@ -9,6 +9,10 @@ import type { LauncherItem } from '../../../shared/types'
 // reorder with up/down. Drag-and-drop is deferred to the Phase 11 polish
 // pass. Every action re-fetches via onChange so the dock and this list stay
 // in sync.
+//
+// The list itself is `LauncherList`, so Settings → Application launcher
+// (v0.3.0) can show the same editor inline for any space; the default export
+// is that list inside the dashboard's modal.
 export default function LauncherEditor({
   spaceId,
   items,
@@ -19,6 +23,22 @@ export default function LauncherEditor({
   items: LauncherItem[]
   onChange: () => void
   onClose: () => void
+}): React.JSX.Element {
+  return (
+    <Modal title="Apps & links" onClose={onClose}>
+      <LauncherList spaceId={spaceId} items={items} onChange={onChange} />
+    </Modal>
+  )
+}
+
+export function LauncherList({
+  spaceId,
+  items,
+  onChange
+}: {
+  spaceId: number
+  items: LauncherItem[]
+  onChange: () => void
 }): React.JSX.Element {
   const [addingUrl, setAddingUrl] = useState(false)
   const [urlName, setUrlName] = useState('')
@@ -39,7 +59,7 @@ export default function LauncherEditor({
   }
 
   return (
-    <Modal title="Apps & links" onClose={onClose}>
+    <>
       <div className="launcher-list">
         {items.map((item, i) => (
           <div key={item.id} className="launcher-row">
@@ -135,6 +155,6 @@ export default function LauncherEditor({
           </button>
         </div>
       )}
-    </Modal>
+    </>
   )
 }

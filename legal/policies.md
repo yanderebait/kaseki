@@ -15,7 +15,7 @@ Both versions of each document are presented side-by-side in the Kaseki UI. When
 
 **Author**: yanderebait, informally self-described as "Common Plebeian of the Masses."
 
-**Last updated**: [to be set by Phase 8 implementation]
+**Last updated**: 23 November 2026
 
 ---
 

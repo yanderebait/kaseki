@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.3.0
+
+The placeholder release: everything 0.2.0 still showed as "coming soon" is
+now real. The home-screen widgets work, and the six settings pages that said
+they would "arrive in a later phase" have arrived. The self-test suite grew
+from 296 to 409 checks, none of which touch the network.
+
+### Home-screen widgets
+
+- **Five working widgets** replace the five inert placeholders: **Upcoming**
+  (overdue tasks, then the next seven days of due tasks and events across
+  every active space), **Quick Notes** (a scratchpad saved as you type),
+  **World Clocks** (up to six zones, with the offset from yours, correct
+  across daylight-saving changes), **Bookmarks** (http/https links only,
+  opened in your own browser), and **Weather**.
+- **Edit** reorders, removes, and adds widgets, and manages clocks and
+  bookmarks. The layout and each widget's content are preferences, so no
+  migration was needed. A new install shows Upcoming, Quick Notes, World
+  Clocks, and Bookmarks; Weather is never on unless you add it.
+
+### Settings pages
+
+- **Application launcher** — edit any space's dock from Settings, with the
+  same editor the dashboard uses.
+- **Backup and export** — built-in backup (on demand, or daily / weekly while
+  Kaseki is open), keep the newest *n*, restore with an undo copy, and plain
+  exports of all tasks (CSV) and the calendar (`.ics`). Backups are copied
+  as they sit on disk, so they stay encrypted. See the self-hosting guide.
+- **Notifications** — off by default. Local desktop reminders before timed
+  events and an optional daily summary of due and overdue tasks. Nothing
+  leaves the machine.
+- **Search** — choose which kinds of result Cmd/Ctrl+K shows and how many of
+  each (the old fixed eight is still the default).
+- **Updates** — an optional daily check against GitHub releases, off by
+  default. It tells you about a new version and links to it; it never
+  downloads or installs anything.
+- **Weather widget** — the switch, a place search, and °C / °F. Off by
+  default; no request is made until it is on and a place is chosen.
+
+### Privacy
+
+Kaseki now has three optional outbound features — crash reporting, the update
+check, and the weather widget — and all three are **off by default**. With
+them off, Kaseki makes no network requests. The update check sends only its
+version in the User-Agent; the weather widget sends only the chosen
+coordinates and units (or, while searching for a place, the name typed). A
+release link from GitHub is only followed if it points at this project's own
+releases page.
+
+### Upgrade notes
+
+No database migration. The privacy policy's "Last updated" date is now set
+(23 November 2026), which changes the legal documents' fingerprint — so
+existing users are asked to review and accept the legal documents once more
+on first launch after upgrading.
+
 ## 0.2.0
 
 A bug-fix and completeness release. Every change below came out of a full audit

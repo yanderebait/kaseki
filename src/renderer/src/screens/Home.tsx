@@ -11,11 +11,13 @@ import { Book } from '../icons'
 export default function Home({
   onOpenSpace,
   onOpenKnowledge,
-  onOpenTask
+  onOpenTask,
+  onOpenSettings
 }: {
   onOpenSpace: (spaceId: number) => void
   onOpenKnowledge: () => void
   onOpenTask?: (spaceId: number, taskId: number) => void
+  onOpenSettings?: (category: string) => void
 }): React.JSX.Element {
   const [name, setName] = useState('')
 
@@ -39,7 +41,11 @@ export default function Home({
         </div>
         <div className="home-col">
           <CalendarStrip />
-          <WidgetArea />
+          <WidgetArea
+            onOpenTask={onOpenTask}
+            onOpenSpace={onOpenSpace}
+            onOpenSettings={onOpenSettings}
+          />
         </div>
       </main>
     </div>

@@ -5,7 +5,3 @@ Kaseki is a private, self-hosted dashboard for one person's working life — tas
 - **[User Guide](./user-guide.md)** — using Kaseki day to day.
 - **[Developer Guide](./developer-guide.md)** — architecture, conventions, and working on Kaseki itself.
 - **[Self-Hosting Guide](./self-hosting.md)** — installing, where your data lives, backup, encryption, and privacy.
-
-The full design specification — every decision and its reasoning — is in [`kaseki-spec.md`](../kaseki-spec.md) at the repository root.
-
-> A rendered documentation site comes with the public release; for now these are plain Markdown.

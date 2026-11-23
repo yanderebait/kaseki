@@ -71,6 +71,22 @@ import {
 } from './db/knowledge'
 import { createLink, deleteLink, linkCandidates, listBacklinks, listOutgoing } from './db/links'
 import { globalSearch } from './db/search'
+import { listUpcoming } from './db/upcoming'
+import { clearWeatherCache, getWeather, searchPlaces } from './weather'
+import { checkForUpdate, setUpdateCheckEnabled, updateStatus } from './updates'
+import {
+  backupConfig,
+  backupNow,
+  chooseBackupFolder,
+  restoreFromBackup,
+  updateBackupConfig
+} from './backup'
+import { exportTasksCsv } from './dataExport'
+import { sendTestNotification } from './notifications'
+import { normalizeSearchOptions } from '../shared/searchOptions'
+import type { UpcomingItem, WeatherPlace, WeatherResult } from '../shared/widgets'
+import type { UpdateStatus } from '../shared/updates'
+import type { BackupConfig, BackupResult } from '../shared/backup'
 import {
   addDependency,
   addSubtask,
@@ -247,6 +263,8 @@ export function registerIpcHandlers(): void {
     const next = setPreferences(patch as Preferences)
     // A running auto-lock countdown picks the new interval up immediately.
     if ('vaultAutoLock' in (patch as Record<string, unknown>)) rearmAutoLock()
+    // A new location or unit must not be answered from the old forecast.
+    if ('weather' in (patch as Record<string, unknown>)) clearWeatherCache()
     return next
   })
 
@@ -809,8 +827,40 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('search:query', (_event, query: unknown): SearchHit[] => {
     const q = typeof query === 'string' ? query : ''
     const vaultFiles = vaultStatus() === 'unlocked' ? listVaultFiles() : []
-    return globalSearch(q, vaultFiles)
+    return globalSearch(q, vaultFiles, normalizeSearchOptions(getPreferences().search))
   })
+
+  // --- v0.3.0: widgets, weather, updates, backup, export, notifications ---
+
+  ipcMain.handle('widgets:upcoming', (): UpcomingItem[] => listUpcoming())
+
+  // The renderer has no network access; the main process fetches the forecast
+  // and refuses unless the widget is switched on and a location is set.
+  ipcMain.handle('weather:get', (_event, force: unknown): Promise<WeatherResult> =>
+    getWeather(force === true)
+  )
+  ipcMain.handle('weather:search', (_event, query: unknown): Promise<WeatherPlace[]> =>
+    searchPlaces(typeof query === 'string' ? query : '')
+  )
+
+  ipcMain.handle('updates:status', (): UpdateStatus => updateStatus())
+  ipcMain.handle('updates:setEnabled', (_event, enabled: unknown): UpdateStatus =>
+    setUpdateCheckEnabled(enabled === true)
+  )
+  ipcMain.handle('updates:check', (): Promise<UpdateStatus> => checkForUpdate())
+
+  ipcMain.handle('backup:config', (): BackupConfig => backupConfig())
+  ipcMain.handle('backup:now', (): Promise<BackupResult> => backupNow())
+  ipcMain.handle('backup:chooseFolder', (): Promise<BackupConfig> => chooseBackupFolder())
+  ipcMain.handle('backup:update', (_event, patch: unknown): BackupConfig => {
+    const o = (patch ?? {}) as Record<string, unknown>
+    return updateBackupConfig({ schedule: o.schedule, keep: o.keep })
+  })
+  ipcMain.handle('backup:restore', (): Promise<BackupResult> => restoreFromBackup())
+
+  ipcMain.handle('export:tasksCsv', (): Promise<{ ok: boolean; error?: string }> => exportTasksCsv())
+
+  ipcMain.handle('notifications:test', (): { ok: boolean; error?: string } => sendTestNotification())
 
   ipcMain.handle('vault:status', (): VaultStatus => vaultStatus())
 

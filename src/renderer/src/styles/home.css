@@ -304,7 +304,8 @@
   color: var(--text-tertiary);
 }
 
-/* Widget area (right column, below calendar) */
+/* Widget area (right column, below calendar). v0.3.0: real widgets — each a
+   card with a small header and its own body — replacing the Phase 1 shell. */
 
 .widget-region {
   display: flex;
@@ -318,12 +319,37 @@
   justify-content: space-between;
 }
 
+.widget-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+}
+
 .widget-title {
   font-size: var(--text-metadata);
   font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-tertiary);
+}
+
+.widget-edit-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  padding: var(--gap-2) var(--gap-4);
+  background: transparent;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+  color: var(--text-secondary);
+  font-size: var(--text-hint);
+  cursor: pointer;
+}
+
+.widget-edit-toggle:hover,
+.widget-edit-toggle.active {
+  border-color: var(--accent);
+  color: var(--text-primary);
 }
 
 .view-toggle {
@@ -354,28 +380,43 @@
   gap: var(--gap-3);
 }
 
+/* Grid view: two columns; cards keep their natural height. */
 .widget-area-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gap-3);
+  align-items: start;
 }
 
-.widget-cell {
+.widget-area-grid .widget-add,
+.widget-area-grid .widget-picker,
+.widget-area-grid > .widget-empty {
+  grid-column: 1 / -1;
+}
+
+.widget-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+  min-width: 0;
+  /* Widgets lay themselves out by the card's width, not the window's: the
+     same card is wide in list view and half as wide in grid view. */
+  container-type: inline-size;
+  padding: var(--pad-card-compact) var(--pad-card-medium);
   background: var(--bg-secondary);
   border: 0.5px solid var(--border-subtle);
   border-radius: var(--radius-card);
 }
 
+.widget-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+}
+
 .widget-icon {
   display: flex;
   color: var(--text-secondary);
-}
-
-.widget-meta {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gap-1);
-  min-width: 0;
 }
 
 .widget-name {
@@ -389,45 +430,331 @@
   color: var(--text-tertiary);
 }
 
-.widget-preview {
-  font-size: var(--text-body);
+.widget-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-1);
+  min-width: 0;
+  text-align: left;
+}
+
+.widget-card-controls {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.widget-card-controls button,
+.widget-row-remove,
+.widget-inline-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gap-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-button);
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.widget-card-controls button:hover:not(:disabled),
+.widget-row-remove:hover,
+.widget-inline-add:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.widget-card-controls button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.widget-card-body {
+  min-width: 0;
+}
+
+.widget-empty {
+  margin: 0;
+  font-size: var(--text-hint);
   color: var(--text-tertiary);
 }
 
-/* List view: wide row — icon, name + description, preview */
-.widget-area-list .widget-cell {
+/* Quick Notes */
+.widget-notes {
+  display: block;
+  width: 100%;
+  min-height: 96px;
+  padding: var(--gap-3) var(--gap-4);
+  background: var(--bg-primary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-body);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.widget-notes:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Upcoming */
+.widget-upcoming,
+.widget-clock-list,
+.widget-bookmark-list,
+.widget-weather-days {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.widget-upcoming-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.widget-upcoming-row.static {
+  cursor: default;
+}
+
+.widget-upcoming-kind {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.widget-upcoming-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.widget-upcoming-row:hover .widget-upcoming-title {
+  color: var(--text-primary);
+}
+
+.widget-upcoming-space {
+  flex-shrink: 0;
+  font-size: var(--text-metadata);
+  color: var(--text-tertiary);
+}
+
+.widget-upcoming-when {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: var(--gap-3);
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.widget-upcoming-when.overdue {
+  color: var(--accent-red);
+}
+
+/* A narrow card (grid view) can't fit title, space, and date on one line —
+   the title was squeezed to a letter or two. The title gets the first line;
+   the space and the date share a second, aligned under the title. */
+@container (max-width: 420px) {
+  .widget-upcoming-row {
+    flex-wrap: wrap;
+    row-gap: var(--gap-1);
+  }
+
+  .widget-upcoming-title {
+    flex: 1 1 calc(100% - 14px - var(--gap-3));
+  }
+
+  .widget-upcoming-space {
+    min-width: 0;
+    flex-shrink: 1;
+    margin-left: calc(14px + var(--gap-3));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* World Clocks */
+.widget-clock {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-3);
+  font-size: var(--text-body);
+}
+
+.widget-clock-city {
+  color: var(--text-secondary);
+}
+
+.widget-clock-offset {
+  font-size: var(--text-metadata);
+  color: var(--text-tertiary);
+}
+
+.widget-clock-time {
+  margin-left: auto;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.widget-inline-form {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  margin-top: var(--gap-4);
+}
+
+.widget-inline-form .settings-input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-hint);
+}
+
+.widget-inline-form .widget-bookmark-name {
+  flex: 0 0 32%;
+}
+
+/* Bookmarks */
+.widget-bookmark-list {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.widget-bookmark {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* In edit mode the remove button sits beside the pill; the pill gives way
+   (its name truncates) so the pair never overflows the card. */
+.widget-bookmark .widget-row-remove,
+.widget-clock .widget-row-remove {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.widget-bookmark-open {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--gap-2);
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--gap-2) var(--gap-4);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: var(--text-hint);
+  cursor: pointer;
+}
+
+.widget-bookmark-open svg {
+  flex-shrink: 0;
+}
+
+.widget-bookmark-open span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.widget-bookmark-open:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+/* Weather */
+.widget-weather {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-5);
+}
+
+.widget-weather-now {
   display: flex;
   align-items: center;
   gap: var(--gap-5);
-  padding: var(--pad-card-medium);
 }
 
-.widget-area-list .widget-meta {
-  flex: 1;
+.widget-weather-temp {
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Grid view: small square card — icon, label, preview stacked */
-.widget-area-grid .widget-cell {
+.widget-weather-meta {
   display: flex;
   flex-direction: column;
-  gap: var(--gap-2);
-  padding: var(--pad-card-compact);
-  aspect-ratio: 1;
+  gap: var(--gap-1);
+  min-width: 0;
 }
 
-.widget-area-grid .widget-desc {
-  display: none;
+.widget-weather-label {
+  font-size: var(--text-body);
+  color: var(--text-primary);
 }
 
-.widget-area-grid .widget-preview {
-  margin-top: auto;
+.widget-weather-place {
+  font-size: var(--text-hint);
+  color: var(--text-tertiary);
 }
 
+.widget-weather-days li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-3);
+  font-size: var(--text-hint);
+  color: var(--text-secondary);
+}
+
+.widget-weather-day {
+  flex: 0 0 44px;
+  color: var(--text-tertiary);
+}
+
+.widget-weather-range {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.widget-weather-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gap-3);
+}
+
+/* Add widget + picker */
 .widget-add {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--gap-3);
+  padding: var(--pad-card-medium);
   background: transparent;
   border: 1px dashed var(--border-emphasis);
   border-radius: var(--radius-card);
@@ -438,18 +765,49 @@
     color var(--duration-micro);
 }
 
-.widget-area-list .widget-add {
-  padding: var(--pad-card-medium);
-}
-
-.widget-area-grid .widget-add {
-  flex-direction: column;
-  aspect-ratio: 1;
-  padding: var(--pad-card-compact);
-}
-
 .widget-add:hover {
   border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.widget-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--gap-3);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-emphasis);
+  border-radius: var(--radius-card);
+}
+
+.widget-picker-item {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-5);
+  padding: var(--gap-4);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-button);
+  color: inherit;
+  cursor: pointer;
+}
+
+.widget-picker-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.widget-picker-cancel {
+  align-self: flex-end;
+  margin-top: var(--gap-2);
+  padding: var(--gap-2) var(--gap-4);
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-hint);
+  cursor: pointer;
+}
+
+.widget-picker-cancel:hover {
   color: var(--text-primary);
 }
 

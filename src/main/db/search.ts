@@ -2,6 +2,7 @@ import { getDb } from './connection'
 import { pmText } from '../prosemirror'
 import { searchPages } from './knowledge'
 import type { SearchHit, VaultFile } from '../../shared/types'
+import { defaultSearchOptions, type SearchOptions } from '../../shared/searchOptions'
 
 // Global search (Part 15): one LIKE-based pass per content type, scored by a
 // simple relevance heuristic (title match beats body match; prefix beats
@@ -12,7 +13,6 @@ import type { SearchHit, VaultFile } from '../../shared/types'
 // schema has no file tags, and reading text-file content on every keystroke
 // would fight the latency budget (both deferred, noted in the spec).
 
-const MAX_PER_TYPE = 8
 const MIN_QUERY = 2
 
 function escapeLike(q: string): string {
@@ -52,7 +52,14 @@ interface TaskDisplay {
   accentColor: string | null
 }
 
-export function globalSearch(query: string, vaultFiles: VaultFile[] = []): SearchHit[] {
+// `options` (Settings → Search, v0.3.0) switches whole result kinds off and
+// sets the per-kind cap; the default searches everything, eight per kind —
+// the behaviour before the setting existed.
+export function globalSearch(
+  query: string,
+  vaultFiles: VaultFile[] = [],
+  options: SearchOptions = defaultSearchOptions()
+): SearchHit[] {
   const q = query.trim().toLowerCase()
   if (q.length < MIN_QUERY) return []
   const like = `%${escapeLike(q)}%`
@@ -265,8 +272,9 @@ export function globalSearch(query: string, vaultFiles: VaultFile[] = []): Searc
   const perType = new Map<string, number>()
   const out: SearchHit[] = []
   for (const { hit } of scored) {
+    if (!options.types[hit.type]) continue
     const n = perType.get(hit.type) ?? 0
-    if (n >= MAX_PER_TYPE) continue
+    if (n >= options.maxPerType) continue
     perType.set(hit.type, n + 1)
     out.push(hit)
   }

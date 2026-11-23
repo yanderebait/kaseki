@@ -239,6 +239,7 @@ export default function AppShell({
           onOpenSpace={(spaceId) => setView({ name: 'dashboard', spaceId })}
           onOpenKnowledge={() => setKnowledge({})}
           onOpenTask={(spaceId, taskId) => setView({ name: 'dashboard', spaceId, openTaskId: taskId })}
+          onOpenSettings={setSettingsCategory}
         />
       ) : (
         <Dashboard

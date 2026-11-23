@@ -43,3 +43,15 @@ export function parseCsv(text: string): string[][] {
   }
   return rows
 }
+
+// The inverse (v0.3.0): one RFC-4180 serializer for main-process exports. A
+// field is quoted when it contains a comma, a quote, or a line break; quotes
+// inside it are doubled. Rows end with \r\n, as the RFC specifies.
+export function csvField(value: string | number | null | undefined): string {
+  const text = value == null ? '' : String(value)
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+export function toCsv(rows: Array<Array<string | number | null | undefined>>): string {
+  return rows.map((row) => row.map(csvField).join(',')).join('\r\n') + '\r\n'
+}

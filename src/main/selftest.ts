@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { paths } from './paths'
 import {
@@ -70,7 +70,54 @@ import {
 } from './db/knowledge'
 import { createLink, deleteLink, linkCandidates, listBacklinks, listOutgoing } from './db/links'
 import { globalSearch } from './db/search'
-import { parseCsv } from '../shared/csv'
+import { parseCsv, toCsv } from '../shared/csv'
+import {
+  WIDGET_TYPES,
+  DEFAULT_WIDGETS,
+  addWidget,
+  availableWidgets,
+  moveWidget,
+  normalizeBookmarkUrl,
+  normalizeBookmarks,
+  normalizeClocks,
+  normalizeLayout,
+  normalizeWeatherConfig,
+  removeWidget,
+  weatherLabel,
+  weatherReady,
+  zoneLabel,
+  zoneOffsetLabel,
+  DEFAULT_CLOCKS,
+  CLOCKS_MAX
+} from '../shared/widgets'
+import {
+  UPDATE_RELEASES_URL,
+  isNewerVersion,
+  parseVersion,
+  updateCheckDue
+} from '../shared/updates'
+import { checkForUpdate, parseLatestRelease } from './updates'
+import {
+  DEFAULT_NOTIFICATIONS,
+  digestBody,
+  digestDue,
+  dueReminders,
+  localDateKey,
+  reminderKey,
+  type ReminderCandidate
+} from '../shared/notifications'
+import {
+  DEFAULT_BACKUP,
+  backupFolderName,
+  backupsToPrune,
+  isBackupFolderName,
+  scheduledBackupDue
+} from '../shared/backup'
+import { createBackup, isInside, isRestorable, pruneBackups, readManifest, restoreInto } from './backup'
+import { defaultSearchOptions, normalizeSearchOptions, SEARCH_TYPES } from '../shared/searchOptions'
+import { dueCounts, listUpcoming } from './db/upcoming'
+import { TASK_EXPORT_HEADER, buildTasksCsv } from './dataExport'
+import { forecastUrl, getWeather, parseForecast, parsePlaces } from './weather'
 import {
   capRuleBefore,
   floatingFromInstant,
@@ -1111,6 +1158,302 @@ export async function runSelfTest(): Promise<number> {
     const csvRows = parseCsv('name,note\r\n"Smith, J","said ""ok""\nthen left"\r\n')
     check('shared CSV parser handles quoted commas, quotes, and newlines', csvRows.length === 2 && csvRows[1][0] === 'Smith, J' && csvRows[1][1] === 'said "ok"\nthen left')
 
+    // --- v0.3.0: widgets, updates, notifications, backup, search options,
+    // export. Pure logic first, then the data layer; nothing here touches the
+    // network.
+
+    // Widget layout
+    check('widget layout: a missing layout falls back to the default', normalizeLayout(undefined).join() === DEFAULT_WIDGETS.join())
+    check('widget layout: an explicit empty layout is respected', normalizeLayout([]).length === 0)
+    check(
+      'widget layout: unknown types are dropped and duplicates collapse',
+      normalizeLayout(['clocks', 'nope', 'notes', 'clocks', 42]).join() === 'clocks,notes'
+    )
+    check('default widgets leave weather (network) out', !DEFAULT_WIDGETS.includes('weather'))
+    check('addWidget appends a new type', addWidget(['notes'], 'clocks').join() === 'notes,clocks')
+    check('addWidget ignores a type already present', addWidget(['notes', 'clocks'], 'notes').join() === 'notes,clocks')
+    check('removeWidget removes only that type', removeWidget(['notes', 'clocks', 'upcoming'], 'clocks').join() === 'notes,upcoming')
+    check('moveWidget moves up', moveWidget(['notes', 'clocks', 'upcoming'], 'clocks', -1).join() === 'clocks,notes,upcoming')
+    check('moveWidget moves down', moveWidget(['notes', 'clocks', 'upcoming'], 'clocks', 1).join() === 'notes,upcoming,clocks')
+    check('moveWidget off either end is a no-op', moveWidget(['notes', 'clocks'], 'notes', -1).join() === 'notes,clocks' && moveWidget(['notes', 'clocks'], 'clocks', 1).join() === 'notes,clocks')
+    check('moveWidget of a missing type is a no-op', moveWidget(['notes'], 'weather', 1).join() === 'notes')
+    check('availableWidgets lists what is not placed', availableWidgets(['notes', 'clocks']).join() === WIDGET_TYPES.filter((t) => t !== 'notes' && t !== 'clocks').join())
+
+    // Bookmarks: web links only
+    check('bookmark: a bare host is promoted to https', normalizeBookmarkUrl('example.com') === 'https://example.com/')
+    check('bookmark: http is kept', normalizeBookmarkUrl(' http://example.com/a?b=1 ') === 'http://example.com/a?b=1')
+    check('bookmark: host with a port is a host, not a scheme', normalizeBookmarkUrl('localhost:3000') === 'https://localhost:3000/')
+    check('bookmark: file: is rejected', normalizeBookmarkUrl('file:///etc/passwd') === null)
+    check('bookmark: javascript: is rejected', normalizeBookmarkUrl('javascript:alert(1)') === null)
+    check('bookmark: javascript:// is rejected', normalizeBookmarkUrl('javascript://example.com/%0aalert(1)') === null)
+    check('bookmark: other schemes are rejected', normalizeBookmarkUrl('ftp://example.com') === null && normalizeBookmarkUrl('mailto:a@b.com') === null)
+    check('bookmark: empty and dotless hosts are rejected', normalizeBookmarkUrl('  ') === null && normalizeBookmarkUrl('intranet') === null)
+    const bms = normalizeBookmarks([
+      { name: 'Docs', url: 'docs.example.com' },
+      { name: 'Bad', url: 'file:///C:/secret' },
+      { url: 'https://gov.uk/x' },
+      'junk'
+    ])
+    check(
+      'normalizeBookmarks drops unsafe entries and names nameless ones by host',
+      bms.length === 2 && bms[0].url === 'https://docs.example.com/' && bms[1].name === 'gov.uk'
+    )
+    check('normalizeBookmarks of a non-array is empty', normalizeBookmarks('x').length === 0)
+
+    // World clocks
+    check('clocks: a missing list falls back to the defaults', normalizeClocks(null).join() === DEFAULT_CLOCKS.join())
+    check('clocks: invalid zones and duplicates are dropped', normalizeClocks(['Mars/Olympus', 'Asia/Tokyo', 'Asia/Tokyo']).join() === 'Asia/Tokyo')
+    check(
+      'clocks: capped at the maximum',
+      normalizeClocks(['UTC', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo', 'Asia/Kolkata', 'America/New_York', 'America/Chicago']).length === CLOCKS_MAX
+    )
+    check('zoneLabel shows the city', zoneLabel('America/New_York') === 'New York' && zoneLabel('UTC') === 'UTC')
+    const janNoon = new Date(Date.UTC(2026, 0, 15, 12))
+    const julNoon = new Date(Date.UTC(2026, 6, 15, 12))
+    check('zoneOffsetLabel: same zone', zoneOffsetLabel('Europe/London', 'Europe/London', janNoon) === 'same time')
+    check('zoneOffsetLabel: half-hour zone in winter', zoneOffsetLabel('Asia/Kolkata', 'Europe/London', janNoon) === '+5h 30m')
+    check('zoneOffsetLabel: follows daylight saving', zoneOffsetLabel('Asia/Kolkata', 'Europe/London', julNoon) === '+4h 30m')
+    check('zoneOffsetLabel: behind is negative', zoneOffsetLabel('America/New_York', 'Europe/London', janNoon) === '−5h')
+    check('zoneOffsetLabel: quarter-hour zone', zoneOffsetLabel('Asia/Kathmandu', 'UTC', janNoon) === '+5h 45m')
+
+    // Weather config gating and labels (no network)
+    check('weather config defaults to off with no location', (() => {
+      const c = normalizeWeatherConfig(undefined)
+      return !c.enabled && c.latitude === null && c.units === 'celsius' && !weatherReady(c)
+    })())
+    check('weather: on but without a location is not ready', !weatherReady(normalizeWeatherConfig({ enabled: true })))
+    check('weather: a location while off is not ready', !weatherReady(normalizeWeatherConfig({ latitude: 51.5, longitude: -0.1 })))
+    check('weather: on with a location is ready', weatherReady(normalizeWeatherConfig({ enabled: true, latitude: 51.5, longitude: -0.1 })))
+    check('weather: out-of-range latitude clears the location', (() => {
+      const c = normalizeWeatherConfig({ enabled: true, latitude: 91, longitude: 0 })
+      return c.latitude === null && c.longitude === null && !weatherReady(c)
+    })())
+    check('weather: half a location is no location', normalizeWeatherConfig({ enabled: true, latitude: 10 }).latitude === null)
+    check('weather: only fahrenheit or celsius', normalizeWeatherConfig({ units: 'kelvin' }).units === 'celsius' && normalizeWeatherConfig({ units: 'fahrenheit' }).units === 'fahrenheit')
+    check(
+      'weatherLabel maps WMO codes',
+      weatherLabel(0) === 'Clear' && weatherLabel(3) === 'Overcast' && weatherLabel(63) === 'Rain' &&
+        weatherLabel(73) === 'Snow' && weatherLabel(81) === 'Showers' && weatherLabel(95) === 'Thunderstorm' &&
+        weatherLabel(150) === 'Unknown'
+    )
+    const london = normalizeWeatherConfig({ enabled: true, name: 'London', latitude: 51.5, longitude: -0.12 })
+    const fUrl = new URL(forecastUrl({ ...london, units: 'fahrenheit' }))
+    check(
+      'forecastUrl sends the coordinates to Open-Meteo',
+      fUrl.origin === 'https://api.open-meteo.com' && fUrl.searchParams.get('latitude') === '51.5' && fUrl.searchParams.get('longitude') === '-0.12'
+    )
+    check('forecastUrl asks for fahrenheit only when chosen', fUrl.searchParams.get('temperature_unit') === 'fahrenheit' && !new URL(forecastUrl(london)).searchParams.has('temperature_unit'))
+    check('forecastUrl carries no place name', !forecastUrl(london).includes('London'))
+    const forecast = parseForecast(
+      {
+        current: { temperature_2m: 7.4, weather_code: 3 },
+        daily: {
+          time: ['2026-11-23', '2026-11-24', '2026-11-25'],
+          weather_code: [3, 61, 'x'],
+          temperature_2m_max: [9, 8.5, 7],
+          temperature_2m_min: [2, 3, 1]
+        }
+      },
+      london,
+      janNoon
+    )
+    check(
+      'parseForecast reads current conditions and skips malformed days',
+      !!forecast && forecast.temperature === 7.4 && forecast.code === 3 && forecast.days.length === 2 &&
+        forecast.days[1].high === 8.5 && forecast.place === 'London' && forecast.fetchedAt === janNoon.toISOString()
+    )
+    check('parseForecast rejects an unexpected reply', parseForecast({ error: true }, london, janNoon) === null && parseForecast(null, london, janNoon) === null)
+    const places = parsePlaces({
+      results: [
+        { name: 'London', admin1: 'England', country: 'United Kingdom', latitude: 51.5, longitude: -0.12 },
+        { name: 'London', country: 'Canada', latitude: 42.98, longitude: -81.23 },
+        { name: 'Nowhere', latitude: 'x', longitude: 1 }
+      ]
+    })
+    check('parsePlaces keeps valid places with their region', places.length === 2 && places[0].region === 'England, United Kingdom' && places[1].region === 'Canada')
+    check('parsePlaces of no results is empty', parsePlaces({}).length === 0 && parsePlaces('x').length === 0)
+    check('getWeather is off by default (no request)', (await getWeather()).status === 'off')
+
+    // Updates
+    check('parseVersion reads v-prefixed and pre-release tags', parseVersion('v0.3.0')?.join() === '0,3,0' && parseVersion('1.2.3-beta.1')?.join() === '1,2,3')
+    check('parseVersion rejects non-versions', parseVersion('dev') === null && parseVersion('') === null)
+    check('isNewerVersion compares numerically', isNewerVersion('0.10.0', '0.9.9') && isNewerVersion('v1.0.0', '0.3.0'))
+    check('isNewerVersion: equal or older is not newer', !isNewerVersion('0.3.0', '0.3.0') && !isNewerVersion('v0.2.9', '0.3.0'))
+    check('isNewerVersion: unparseable is never newer', !isNewerVersion('dev', '0.1.0') && !isNewerVersion('9.9.9', 'dev'))
+    const nowU = new Date('2026-11-23T12:00:00Z')
+    check('updateCheckDue: never while disabled', !updateCheckDue(false, null, nowU))
+    check('updateCheckDue: due when never checked', updateCheckDue(true, null, nowU))
+    check('updateCheckDue: not due within a day', !updateCheckDue(true, '2026-11-23T01:00:00Z', nowU))
+    check('updateCheckDue: due after a day', updateCheckDue(true, '2026-11-22T11:00:00Z', nowU))
+    check('updateCheckDue: a future or corrupt timestamp counts as due', updateCheckDue(true, '2027-01-01T00:00:00Z', nowU) && updateCheckDue(true, 'garbage', nowU))
+    const rel = parseLatestRelease({ tag_name: 'v0.4.0', html_url: `${UPDATE_RELEASES_URL}/tag/v0.4.0` })
+    check('parseLatestRelease reads the tag and keeps the project URL', rel?.version === '0.4.0' && rel?.url === `${UPDATE_RELEASES_URL}/tag/v0.4.0`)
+    check('parseLatestRelease rejects a foreign URL', parseLatestRelease({ tag_name: 'v9.0.0', html_url: 'https://evil.example/kaseki' })?.url === UPDATE_RELEASES_URL)
+    check('parseLatestRelease rejects a look-alike host', parseLatestRelease({ tag_name: 'v9.0.0', html_url: 'https://github.com.evil.example/yanderebait/kaseki/releases/x' })?.url === UPDATE_RELEASES_URL)
+    check('parseLatestRelease rejects a path that escapes the project', parseLatestRelease({ tag_name: 'v9.0.0', html_url: `${UPDATE_RELEASES_URL}/../../../other/repo` })?.url === UPDATE_RELEASES_URL)
+    check('parseLatestRelease needs a tag', parseLatestRelease({ html_url: UPDATE_RELEASES_URL }) === null && parseLatestRelease('x') === null)
+    const upd = await checkForUpdate()
+    check('checkForUpdate is a no-op while disabled', !upd.enabled && upd.checkedAt === null && upd.latestVersion === null && getPreferences().updates === undefined)
+
+    // Notifications
+    const nowN = new Date('2030-01-15T12:00:00Z')
+    const cand = (over: Partial<ReminderCandidate>): ReminderCandidate => ({
+      masterId: 1,
+      occurrenceStart: '2030-01-15T12:10:00.000Z',
+      title: 'Event',
+      allDay: false,
+      completed: false,
+      location: null,
+      ...over
+    })
+    const inWindow = cand({ masterId: 1 })
+    const boundary = cand({ masterId: 2, occurrenceStart: '2030-01-15T12:15:00.000Z' })
+    const tooEarly = cand({ masterId: 3, occurrenceStart: '2030-01-15T12:20:00.000Z' })
+    const started = cand({ masterId: 4, occurrenceStart: '2030-01-15T11:59:00.000Z' })
+    const allDayC = cand({ masterId: 5, allDay: true })
+    const doneC = cand({ masterId: 6, completed: true })
+    const sentC = cand({ masterId: 7 })
+    const reminders = dueReminders([inWindow, boundary, tooEarly, started, allDayC, doneC, sentC], nowN, 15, new Set([reminderKey(sentC)]))
+    check('dueReminders: within the lead window, including its edge', reminders.map((r) => r.masterId).join() === '1,2')
+    check('dueReminders: none with a zero-length window', dueReminders([inWindow], nowN, 5, new Set()).length === 0)
+    const notif = { ...DEFAULT_NOTIFICATIONS, enabled: true, digestHour: 9 }
+    const before9 = new Date(2030, 0, 15, 8, 30)
+    const after9 = new Date(2030, 0, 15, 9, 30)
+    check('digestDue: not before the hour', !digestDue(notif, null, before9))
+    check('digestDue: due after the hour', digestDue(notif, null, after9))
+    check('digestDue: once per day', !digestDue(notif, localDateKey(after9), after9) && digestDue(notif, '2030-01-14', after9))
+    check('digestDue: never while off or without the summary', !digestDue(DEFAULT_NOTIFICATIONS, null, after9) && !digestDue({ ...notif, dailyDigest: false }, null, after9))
+    check('digestBody: nothing to say is null', digestBody(0, 0) === null)
+    check('digestBody: singular and plural', digestBody(1, 0) === '1 task due today' && digestBody(2, 3) === '2 tasks due today, 3 overdue' && digestBody(0, 2) === '2 overdue')
+
+    // Backup (pure)
+    check('backupFolderName is local and sortable', backupFolderName(new Date(2026, 10, 23, 17, 45, 2)) === 'Kaseki-backup-2026-11-23-174502')
+    check('isBackupFolderName rejects partial and foreign names', isBackupFolderName('Kaseki-backup-2026-11-23-174502') && !isBackupFolderName('Kaseki-backup-2026-11-23-174502.partial') && !isBackupFolderName('Kaseki-backup-notes'))
+    const pruneNames = [
+      'Kaseki-backup-2026-01-01-000000',
+      'Kaseki-backup-2026-01-03-000000',
+      'Kaseki-backup-2026-01-02-000000',
+      'holiday.jpg',
+      'Kaseki-backup-notes',
+      'Kaseki-backup-2026-01-01-000000.partial'
+    ]
+    check('backupsToPrune removes the oldest Kaseki backups only', backupsToPrune(pruneNames, 1).join() === 'Kaseki-backup-2026-01-01-000000,Kaseki-backup-2026-01-02-000000')
+    check('backupsToPrune never touches foreign names', backupsToPrune(pruneNames, 0).every((n) => isBackupFolderName(n)) && backupsToPrune(pruneNames, 10).length === 0)
+    const nowB = new Date('2026-11-23T12:00:00Z')
+    const dailyBackup = { ...DEFAULT_BACKUP, schedule: 'daily' as const, folder: '/backups' }
+    check('scheduledBackupDue: never while off or without a folder', !scheduledBackupDue({ ...DEFAULT_BACKUP, folder: '/backups' }, nowB) && !scheduledBackupDue({ ...dailyBackup, folder: '' }, nowB))
+    check('scheduledBackupDue: due when never run', scheduledBackupDue(dailyBackup, nowB))
+    check('scheduledBackupDue: daily interval', !scheduledBackupDue({ ...dailyBackup, lastAt: '2026-11-23T02:00:00Z' }, nowB) && scheduledBackupDue({ ...dailyBackup, lastAt: '2026-11-22T11:00:00Z' }, nowB))
+    check('scheduledBackupDue: weekly interval', !scheduledBackupDue({ ...dailyBackup, schedule: 'weekly', lastAt: '2026-11-20T12:00:00Z' }, nowB) && scheduledBackupDue({ ...dailyBackup, schedule: 'weekly', lastAt: '2026-11-15T12:00:00Z' }, nowB))
+    check('isInside: a sibling with a shared prefix is outside', !isInside('/data/kaseki', '/data/kaseki-backups') && isInside('/data/kaseki', '/data/kaseki/uploads') && isInside('/data/kaseki', '/data/kaseki/..x') && !isInside('/data/kaseki', '/data'))
+
+    // Search options
+    const so = normalizeSearchOptions(null)
+    check('search options default to everything, eight per kind', SEARCH_TYPES.every((t) => so.types[t]) && so.maxPerType === 8)
+    const soOff = normalizeSearchOptions({ types: { task: false, file: 'no' }, maxPerType: 3 })
+    check('search options honour explicit off only', !soOff.types.task && soOff.types.file && soOff.types.event && soOff.maxPerType === 3)
+    check('search options reject a silly cap', normalizeSearchOptions({ maxPerType: 0 }).maxPerType === 8 && normalizeSearchOptions({ maxPerType: 'x' }).maxPerType === 8)
+    const noTasks = normalizeSearchOptions({ types: { task: false } })
+    const evDefault = globalSearch('evidence', [], defaultSearchOptions())
+    const evNoTasks = globalSearch('evidence', [], noTasks)
+    check('globalSearch drops a switched-off type', evDefault.some((h) => h.type === 'task') && !evNoTasks.some((h) => h.type === 'task') && evNoTasks.some((h) => h.type === 'file'))
+
+    // CSV round trip
+    const csvIn = [
+      ['Title', 'Note', 'Minutes'],
+      ['Smith, J', 'said "ok"\nthen left', 30],
+      ['plain', null, 0]
+    ]
+    const csvOut = toCsv(csvIn)
+    check('toCsv quotes only what needs it and ends rows with CRLF', csvOut.startsWith('Title,Note,Minutes\r\n"Smith, J","said ""ok""\nthen left",30\r\n') && csvOut.endsWith('plain,,0\r\n'))
+    check(
+      'toCsv / parseCsv round trip',
+      JSON.stringify(parseCsv(csvOut)) === JSON.stringify(csvIn.map((r) => r.map((v) => (v == null ? '' : String(v)))))
+    )
+
+    // Upcoming (db/upcoming) — a fixed "now" in 2030 keeps the suite's own
+    // dated tasks out of the window (they read as overdue, which is fine).
+    const nowUp = new Date(2030, 0, 15, 12, 0, 0)
+    const countsDay = new Date(2030, 0, 17, 9, 0, 0)
+    const countsBefore = dueCounts(countsDay)
+    const upSpace = createSpace({ name: 'Upcoming Test', accentColor: '#378ADD' })
+    const goneSpace = createSpace({ name: 'Upcoming Archived', accentColor: '#888780' })
+    createTask({ spaceId: upSpace.id, title: 'UP overdue', dueDate: '2030-01-10' })
+    createTask({ spaceId: upSpace.id, title: 'UP soon', dueDate: '2030-01-17' })
+    createTask({ spaceId: upSpace.id, title: 'UP far', dueDate: '2030-02-20' })
+    createTask({ spaceId: upSpace.id, title: 'UP done', dueDate: '2030-01-16', status: 'Done' })
+    const upArchived = createTask({ spaceId: upSpace.id, title: 'UP archived', dueDate: '2030-01-16' })
+    updateTask(upArchived.id, { archived: true })
+    createTask({ spaceId: goneSpace.id, title: 'UP hidden', dueDate: '2030-01-16' })
+    createEvent({ spaceId: goneSpace.id, title: 'UP hidden event', start: new Date(2030, 0, 16, 10).toISOString() })
+    archiveSpace(goneSpace.id, true)
+    createEvent({ spaceId: upSpace.id, title: 'UP meeting', start: new Date(2030, 0, 16, 10).toISOString(), end: new Date(2030, 0, 16, 11).toISOString() })
+    const doneStart = new Date(2030, 0, 16, 11).toISOString()
+    const doneEvent = createEvent({ spaceId: upSpace.id, title: 'UP completed', start: doneStart })
+    setOccurrenceCompleted(doneEvent.id, doneStart, true)
+    createEvent({ spaceId: upSpace.id, title: 'UP next month', start: new Date(2030, 1, 20, 10).toISOString() })
+    const upItems = listUpcoming(nowUp, 7, 500)
+    const upTitles = upItems.map((i) => i.title)
+    check('listUpcoming includes overdue and soon-due tasks and events', ['UP overdue', 'UP soon', 'UP meeting'].every((t) => upTitles.includes(t)))
+    check('listUpcoming excludes Done and archived tasks', !upTitles.includes('UP done') && !upTitles.includes('UP archived'))
+    check('listUpcoming excludes an archived space’s tasks and events', !upTitles.includes('UP hidden') && !upTitles.includes('UP hidden event'))
+    check('listUpcoming excludes completed events', !upTitles.includes('UP completed'))
+    check('listUpcoming respects the window', !upTitles.includes('UP far') && !upTitles.includes('UP next month'))
+    const firstNotOverdue = upItems.findIndex((i) => !i.overdue)
+    check(
+      'listUpcoming puts overdue first',
+      upItems[0].overdue && upItems.slice(firstNotOverdue).every((i) => !i.overdue) &&
+        upItems.find((i) => i.title === 'UP overdue')?.overdue === true
+    )
+    check('listUpcoming is chronological after that', upTitles.indexOf('UP meeting') < upTitles.indexOf('UP soon'))
+    check('listUpcoming respects the limit', listUpcoming(nowUp, 7, 2).length === 2)
+    check('listUpcoming carries the space', upItems.find((i) => i.title === 'UP meeting')?.spaceName === 'Upcoming Test')
+    // maxPerType, on a query with several task hits (the UP tasks above).
+    const upDefault = globalSearch('UP ', [], defaultSearchOptions())
+    const upOne = globalSearch('UP ', [], { ...defaultSearchOptions(), maxPerType: 1 })
+    check(
+      'globalSearch honours maxPerType',
+      upDefault.filter((h) => h.type === 'task').length > 1 &&
+        SEARCH_TYPES.every((t) => upOne.filter((h) => h.type === t).length <= 1) &&
+        upOne.some((h) => h.type === 'task')
+    )
+    const countsAfter = dueCounts(countsDay)
+    check(
+      'dueCounts counts due-today and overdue with the same exclusions',
+      countsAfter.dueToday === countsBefore.dueToday + 1 && countsAfter.overdue === countsBefore.overdue + 1
+    )
+
+    // Task export (dataExport)
+    const exportTask = createTask({ spaceId: upSpace.id, title: 'Export "quoted", with comma', description: 'line one\nline two' })
+    const exported = parseCsv(buildTasksCsv())
+    const taskTotal = (getDb().prepare('SELECT count(*) AS n FROM tasks t JOIN spaces s ON s.id = t.space_id').get() as { n: number }).n
+    check('buildTasksCsv has the header and one row per task', exported[0].join() === TASK_EXPORT_HEADER.join() && exported.length === taskTotal + 1)
+    const exportedRow = exported.find((r) => r[1] === exportTask.title)
+    check('buildTasksCsv round-trips quotes, commas, and newlines', !!exportedRow && exportedRow[0] === 'Upcoming Test' && exportedRow[2] === 'line one\nline two')
+    check('buildTasksCsv marks archived spaces and tasks', exported.some((r) => r[1] === 'UP hidden' && r[9] === 'yes') && exported.some((r) => r[1] === 'UP archived' && r[8] === 'yes'))
+
+    // Backup (files): to a sibling of the data folder, never inside it.
+    const backupRoot = `${paths.root}-backups`
+    mkdirSync(backupRoot, { recursive: true })
+    const made = createBackup(backupRoot, new Date(2026, 0, 2, 3, 4, 5))
+    check('createBackup writes a timestamped folder', made.ok && made.path === join(backupRoot, 'Kaseki-backup-2026-01-02-030405') && existsSync(made.path ?? ''))
+    const manifest = readManifest(made.path ?? '')
+    check('createBackup writes a manifest', manifest?.app === 'kaseki' && manifest.files === made.files && (made.files ?? 0) > 0 && (made.bytes ?? 0) > 0)
+    check('the backup holds the encrypted database and content folders', isRestorable(made.path ?? '') && ['uploads', 'sensitive', 'backgrounds', 'icons'].every((d) => existsSync(join(made.path ?? '', d))))
+    check('the backup leaves logs out', !existsSync(join(made.path ?? '', 'logs')))
+    check('createBackup refuses a destination inside the data folder', !createBackup(paths.uploads, new Date(2026, 0, 2, 3, 4, 7)).ok && !createBackup(paths.root, new Date(2026, 0, 2, 3, 4, 8)).ok)
+    check('createBackup refuses a missing folder', !createBackup(join(backupRoot, 'missing'), new Date(2026, 0, 2, 3, 4, 9)).ok)
+    check('createBackup refuses to overwrite an existing backup', !createBackup(backupRoot, new Date(2026, 0, 2, 3, 4, 5)).ok)
+    const pruneRoot = join(backupRoot, 'prune-test')
+    for (const name of pruneNames) mkdirSync(join(pruneRoot, name), { recursive: true })
+    const prunedCount = pruneBackups(pruneRoot, 2)
+    const left = readdirSync(pruneRoot).sort()
+    check(
+      'pruneBackups keeps the newest and leaves foreign entries alone',
+      prunedCount === 1 && !left.includes('Kaseki-backup-2026-01-01-000000') &&
+        ['Kaseki-backup-2026-01-02-000000', 'Kaseki-backup-2026-01-03-000000', 'holiday.jpg', 'Kaseki-backup-notes', 'Kaseki-backup-2026-01-01-000000.partial'].every((n) => left.includes(n))
+    )
+
     // The login password can finally rotate: rekey re-encrypts in place, a
     // wrong current password is refused, and the new password unlocks after
     // a close. (Rotated back so the final teardown checks still apply.)
@@ -1171,6 +1514,31 @@ export async function runSelfTest(): Promise<number> {
 
     check('correct password unlocks', unlockDatabase('self-test-password'))
     check('unlocked after unlock', getAuthStatus() === 'unlocked')
+
+    // Restore (backup.restoreInto): back up, change something, close, restore,
+    // reopen — the change is gone and the replaced data sits in restore-undo.
+    lockVault()
+    const finalBackup = createBackup(`${paths.root}-backups`, new Date(2026, 0, 2, 3, 4, 6))
+    check('a final backup before restore', finalBackup.ok)
+    setPreferences({ restoreMarker: 'after-backup' })
+    closeDatabase()
+    let undoDir = ''
+    try {
+      undoDir = restoreInto(paths.root, finalBackup.path ?? '', new Date(2026, 0, 2, 3, 5, 0))
+    } catch (error) {
+      process.stderr.write(`restoreInto threw: ${String(error)}\n`)
+    }
+    check('restoreInto keeps an undo copy of the replaced data', !!undoDir && existsSync(join(undoDir, 'kaseki.db')))
+    check('the restored database unlocks', unlockDatabase('self-test-password'))
+    check('the restore brought back the earlier state', getPreferences().restoreMarker === undefined)
+    closeDatabase()
+    let refusedInside = false
+    try {
+      restoreInto(paths.root, undoDir)
+    } catch {
+      refusedInside = true
+    }
+    check('restoreInto refuses a backup inside the data folder', refusedInside && existsSync(join(undoDir, 'kaseki.db')))
 
     closeDatabase()
   } catch (error) {

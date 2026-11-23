@@ -21,10 +21,22 @@ The home screen is your overview across everything:
 - **Profession cards** — one per space, colour-coded, showing how many active tasks each has. Click a card to open its dashboard.
 - **Activity feed** — a running log of recent changes across all spaces ("Marked done", "File uploaded", "2h ago").
 - **Calendar strip** — the next seven days of events from every space.
-- **Widgets** — a grid of optional panels (quick notes, weather, upcoming deadlines, and more) you can arrange.
+- **Widgets** — small panels you choose and arrange (see below).
 - **Knowledge** — opens your personal wiki (see below).
 
 The Orb sits in the bottom-right corner throughout.
+
+### Widgets
+
+The widget area under the calendar strip holds a few small panels. A new install shows four; the fifth (Weather) is yours to add:
+
+- **Upcoming** — overdue tasks first, then tasks due and events starting in the next seven days, across every active space. Done and archived tasks, completed events, and archived spaces are left out. Click a task to open it, or an event to open its space.
+- **Quick Notes** — a plain-text scratchpad, saved as you type. It isn't attached to any task or page; it's for the phone number you need to write down mid-call.
+- **World Clocks** — up to six time zones, each with how far ahead or behind you it is. Add one by zone (`Asia/Tokyo`) or by city name (`Tokyo`).
+- **Bookmarks** — web links that open in your own browser. Only `http` and `https` addresses are accepted; a bare `example.com` becomes `https://example.com`.
+- **Weather** — current conditions and a short forecast for one place. It does nothing until you switch it on and choose a location in **Settings → Weather widget**, because it's the one widget that uses the network (see the self-hosting guide).
+
+Press **Edit** above the widgets to reorder (the arrows), remove (×), or **Add widget**, and to add or remove clocks and bookmarks. Press **Done** when finished. The two buttons beside it switch between a single column (list) and two columns (grid).
 
 ## Profession spaces and the dashboard
 
@@ -87,12 +99,19 @@ The Orb is Kaseki's mascot in the corner — a face that reacts to what you do (
 
 ## Search, commands, and shortcuts
 
-Press **Cmd/Ctrl+K** anywhere to search across everything — tasks, subtasks, events, notes, knowledge pages, files, spaces, bundles, and (when unlocked) the sensitive folder. Results are grouped by type; arrow keys and Enter navigate. Type **`>`** to switch to *commands* (New task, New space, Switch to a space, Toggle theme…). Press **Cmd/Ctrl+/** for the full keyboard-shortcut reference.
+Press **Cmd/Ctrl+K** anywhere to search across everything — tasks, subtasks, events, notes, knowledge pages, files, spaces, bundles, and (when unlocked) the sensitive folder. **Settings → Search** switches any of those kinds off and sets how many results each kind shows. Results are grouped by type; arrow keys and Enter navigate. Type **`>`** to switch to *commands* (New task, New space, Switch to a space, Toggle theme…). Press **Cmd/Ctrl+/** for the full keyboard-shortcut reference.
 
 ## Settings
 
-Reach settings from the Orb menu or **Cmd/Ctrl+,**. Highlights: theme / font size / currency and **changing your login password** (General), per-space billing and archived-space management (Profession spaces), accent and background (Customization), the Orb, the sensitive folder passcode, the keyboard-shortcut reference, and **Crash reporting** (off by default — see the self-hosting guide).
+Reach settings from the Orb menu or **Cmd/Ctrl+,**. Highlights: theme / font size / currency and **changing your login password** (General), per-space billing and archived-space management (Profession spaces), accent and background (Customization), the Orb, the sensitive folder passcode, the keyboard-shortcut reference, and **Crash reporting** (off by default — see the self-hosting guide). Also:
+
+- **Application launcher** — edit any space's dock (add apps and links, rename, change icons, reorder) without opening that space.
+- **Backup and export** — back up now or on a daily / weekly schedule, choose how many backups to keep, restore from a backup, and export all tasks (CSV) or the calendar (`.ics`). The self-hosting guide covers what a backup contains and how restore works.
+- **Notifications** — off by default. When on, a desktop notification a set time before each timed event (5 to 60 minutes), and optionally one summary a day, from an hour you choose, of tasks due today and overdue. They come from your own computer while Kaseki is open and unlocked; nothing is sent anywhere. **Send a test notification** checks your system will show them.
+- **Search** — which kinds of thing Cmd/Ctrl+K looks through, and how many results per kind.
+- **Updates** — your installed version and an optional daily check for a newer release (off by default). Kaseki never downloads or installs anything itself.
+- **Weather widget** — switch the widget on, search for your town, choose °C or °F.
 
 ## Your data
 
-Everything Kaseki knows lives in one folder on your machine, encrypted at rest. There are no accounts, no servers, and no telemetry unless you turn on crash reporting. To back up Kaseki, copy that folder; to move to a new machine, copy it across. The [self-hosting guide](./self-hosting.md) explains where it is and how to back it up.
+Everything Kaseki knows lives in one folder on your machine, encrypted at rest. There are no accounts, no servers, and no telemetry. Three optional features use the network — crash reporting, the update check, and the weather widget — and all three are off until you turn them on. Back up from **Settings → Backup and export**, or copy that folder by hand; to move to a new machine, copy it across. The [self-hosting guide](./self-hosting.md) explains where it is and how to back it up.

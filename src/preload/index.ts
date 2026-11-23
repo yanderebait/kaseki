@@ -44,6 +44,9 @@ import type {
   VaultStatus
 } from '../shared/types'
 import type { LegalStatus } from '../shared/legal'
+import type { UpcomingItem, WeatherPlace, WeatherResult } from '../shared/widgets'
+import type { UpdateStatus } from '../shared/updates'
+import type { BackupConfig, BackupResult, BackupSchedule } from '../shared/backup'
 
 type AuthStatus = 'setup' | 'locked' | 'unlocked'
 interface AuthResult {
@@ -269,6 +272,35 @@ const api = {
   },
   search: {
     query: (query: string): Promise<SearchHit[]> => ipcRenderer.invoke('search:query', query)
+  },
+  // v0.3.0 — the home-screen widgets and the settings pages that were
+  // placeholders until now.
+  widgets: {
+    upcoming: (): Promise<UpcomingItem[]> => ipcRenderer.invoke('widgets:upcoming')
+  },
+  weather: {
+    get: (force = false): Promise<WeatherResult> => ipcRenderer.invoke('weather:get', force),
+    search: (query: string): Promise<WeatherPlace[]> => ipcRenderer.invoke('weather:search', query)
+  },
+  updates: {
+    status: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:status'),
+    setEnabled: (enabled: boolean): Promise<UpdateStatus> =>
+      ipcRenderer.invoke('updates:setEnabled', enabled),
+    check: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:check')
+  },
+  backup: {
+    config: (): Promise<BackupConfig> => ipcRenderer.invoke('backup:config'),
+    now: (): Promise<BackupResult> => ipcRenderer.invoke('backup:now'),
+    chooseFolder: (): Promise<BackupConfig> => ipcRenderer.invoke('backup:chooseFolder'),
+    update: (patch: { schedule?: BackupSchedule; keep?: number }): Promise<BackupConfig> =>
+      ipcRenderer.invoke('backup:update', patch),
+    restore: (): Promise<BackupResult> => ipcRenderer.invoke('backup:restore')
+  },
+  dataExport: {
+    tasksCsv: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('export:tasksCsv')
+  },
+  notifications: {
+    test: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('notifications:test')
   },
   crash: {
     report: (payload: { name?: string; message?: string; stack?: string }): Promise<void> =>
