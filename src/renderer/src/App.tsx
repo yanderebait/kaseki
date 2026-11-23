@@ -5,6 +5,7 @@ import Onboarding from './components/onboarding/Onboarding'
 import LegalModal from './components/legal/LegalModal'
 import { ThemeProvider } from './theme'
 import { OrbProvider } from './orbState'
+import { firstRunOverlays, legalGate, type LegalGate } from '../../shared/firstRun'
 
 type Phase = 'loading' | 'locked' | 'onboarding' | 'ready'
 
@@ -20,7 +21,9 @@ export default function App(): React.JSX.Element {
   const [initialSpaceId, setInitialSpaceId] = useState<number | null>(null)
   const [pendingTour, setPendingTour] = useState(false)
   const [justOnboarded, setJustOnboarded] = useState(false)
-  const [needsLegal, setNeedsLegal] = useState(false)
+  // 'checking' until legal.status() answers; it blocks the tour and the tip just
+  // like 'required' does, so nothing can open on top of the legal modal.
+  const [legal, setLegal] = useState<LegalGate>('checking')
 
   const resolveOnboarding = useCallback(async () => {
     const { needed } = await window.kaseki.onboarding.status()
@@ -63,11 +66,19 @@ export default function App(): React.JSX.Element {
   // Once past onboarding, gate on legal acceptance: the documents must be
   // accepted before the dashboard is usable (Part 13), for both fresh
   // completers and any returning user who has not accepted the current version.
+  // The tour and the settings tip wait for acceptance (shared/firstRun.ts).
   useEffect(() => {
     if (phase === 'ready') {
-      window.kaseki.legal.status().then((s) => setNeedsLegal(!s.accepted))
+      window.kaseki.legal.status().then((s) => setLegal(legalGate(s)))
     }
   }, [phase])
+
+  const overlays = firstRunOverlays({
+    onboarding: phase !== 'ready',
+    legal,
+    tourRequested: pendingTour,
+    justOnboarded
+  })
 
   if (phase === 'loading') return <main className="centered" />
   if (phase === 'locked') return <UnlockScreen onDone={resolveOnboarding} />
@@ -96,15 +107,16 @@ export default function App(): React.JSX.Element {
                   ? { name: 'dashboard', spaceId: initialSpaceId }
                   : { name: 'home' }
               }
-              startTour={pendingTour && !needsLegal}
-              showTip={justOnboarded && !needsLegal}
+              legal={legal}
+              startTour={overlays.startTour}
+              showTip={overlays.showTip}
             />
-            {needsLegal && (
+            {overlays.legalModal && (
               <LegalModal
                 mode="accept"
                 onAccept={async () => {
                   await window.kaseki.legal.accept()
-                  setNeedsLegal(false)
+                  setLegal('accepted')
                 }}
               />
             )}

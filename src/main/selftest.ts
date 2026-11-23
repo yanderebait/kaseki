@@ -203,6 +203,7 @@ import { computeAmount, computeWindowAmount, resolveBilling } from '../shared/bi
 import { PRESETS, UNIVERSAL_STATUSES, getPreset, presetToSpace, searchPresets } from '../shared/presets'
 import { LEGAL_DOCUMENTS, LEGAL_VERSION, legalAcceptanceStatus, recordLegalAcceptance } from './legal'
 import { LEGAL_TITLES } from '../shared/legal'
+import { firstRunOverlays, legalGate, tourVisible } from '../shared/firstRun'
 
 function readFileExists(path: string): boolean {
   try {
@@ -1496,6 +1497,51 @@ export async function runSelfTest(): Promise<number> {
     )
     recordLegalAcceptance()
     check('acceptance is recorded for the current version', legalAcceptanceStatus().accepted === true)
+
+    // First-run ordering (0.3.1): the legal modal is dealt with alone; the tour
+    // and the settings tip wait for acceptance, including while the status
+    // check is still in flight (the 0.1.0–0.3.0 bug: tour + legal together).
+    check(
+      'legal gate: no answer yet is checking, then required or accepted',
+      legalGate(null) === 'checking' &&
+        legalGate({ accepted: false }) === 'required' &&
+        legalGate({ accepted: true }) === 'accepted'
+    )
+    const fresh = { onboarding: false, tourRequested: true, justOnboarded: true }
+    const checking = firstRunOverlays({ ...fresh, legal: 'checking' })
+    check(
+      'first run: nothing opens while the legal status is still being checked',
+      !checking.legalModal && !checking.startTour && !checking.showTip
+    )
+    const pending = firstRunOverlays({ ...fresh, legal: 'required' })
+    check(
+      'first run: the legal modal shows alone, with no tour or tip',
+      pending.legalModal && !pending.startTour && !pending.showTip
+    )
+    const accepted = firstRunOverlays({ ...fresh, legal: 'accepted' })
+    check(
+      'first run: the tour and tip follow acceptance, the modal is gone',
+      !accepted.legalModal && accepted.startTour && accepted.showTip
+    )
+    const during = firstRunOverlays({ ...fresh, onboarding: true, legal: 'required' })
+    check('first run: nothing overlays onboarding itself', !during.legalModal && !during.startTour && !during.showTip)
+    const returning = firstRunOverlays({
+      onboarding: false,
+      legal: 'required',
+      tourRequested: false,
+      justOnboarded: false
+    })
+    check(
+      'returning user with changed legal text: modal only, no tour or tip',
+      returning.legalModal && !returning.startTour && !returning.showTip
+    )
+    const declined = firstRunOverlays({ ...fresh, tourRequested: false, legal: 'accepted' })
+    check('first run: declining the tour still gets the tip', !declined.startTour && declined.showTip)
+    check(
+      'an open tour stays hidden until legal is accepted',
+      !tourVisible(true, 'checking') && !tourVisible(true, 'required') && tourVisible(true, 'accepted') &&
+        !tourVisible(false, 'accepted')
+    )
     // Models migration 005's backfill: a populated users table (a returning
     // user) gets stamped, so they are never pushed back through onboarding.
     getDb().exec(

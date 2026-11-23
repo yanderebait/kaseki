@@ -1,9 +1,9 @@
 import OrbMark from '../OrbMark'
 
 // Screen 5 — tour intro (Part 13). The configured dashboard is one step away;
-// the Orb offers a guided tour. Both choices finish onboarding; the guided
-// tour overlay itself arrives in the next commit, so the startTour choice is
-// passed through for it to consume.
+// the Orb offers a guided tour. Both choices finish onboarding; the startTour
+// choice is passed up to App, which starts the tour once the legal documents
+// have been accepted (shared/firstRun.ts).
 export default function OnboardTourIntro({
   spaceName,
   onChoice

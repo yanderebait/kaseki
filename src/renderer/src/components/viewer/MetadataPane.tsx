@@ -10,8 +10,8 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
   )
 }
 
-// The document metadata pane (Part 9). Task/bundle/annotation references
-// arrive with those systems.
+// The document metadata pane (Part 9): the file's own details. Annotations
+// show on the page, bundles in the ⋯ menu, and attachments on the task.
 export default function MetadataPane({ file }: { file: FileRecord }): React.JSX.Element {
   return (
     <aside className="viewer-meta">
@@ -22,7 +22,6 @@ export default function MetadataPane({ file }: { file: FileRecord }): React.JSX.
       <Row label="Size" value={formatSize(file.size)} />
       <Row label="SHA-256" value={`${file.hash.slice(0, 16)}…`} mono />
       <Row label="Uploaded" value={formatDbDate(file.uploadedAt)} />
-      <p className="hint">Linked tasks, bundles, and annotations will appear here in later phases.</p>
     </aside>
   )
 }

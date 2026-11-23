@@ -15,7 +15,7 @@ const STEPS: TourStep[] = [
   {
     selector: '[data-tour="tasks"]',
     title: 'Your tasks',
-    body: 'Everything you’re working on in this space lives here — the full task list arrives in a later update.'
+    body: 'Everything you’re working on in this space lives here — add a task, search the list, or open any task for its details.'
   },
   {
     selector: '[data-tour="launcher"]',

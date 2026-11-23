@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.1
+
+A first-run fix. Self-test suite: 409 to 417 checks.
+
+- **The tour no longer opens on top of the legal documents.** Choosing
+  "Yes, show me around" at the end of onboarding showed the tour and the
+  Terms / Privacy / Acceptable Use acceptance at the same time, tangled
+  together over the dashboard. The legal documents now come first and on
+  their own; the tour starts only once you accept, and can't be started from
+  the Orb while acceptance is pending. This has been there since 0.1.0: the
+  app treated "still checking whether you've accepted" as "already accepted".
+- **The settings tip shows after the tour.** The Orb's one-time "we're all
+  set" tip was silently dropped whenever you took the tour; it now follows it.
+- **Copy that still said "later".** The tour's first step said the task list
+  "arrives in a later update" and the document viewer's Details pane said
+  linked tasks, bundles, and annotations would appear "in later phases". All
+  of those shipped long ago; the wording is fixed.
+
 ## 0.3.0
 
 The placeholder release: everything 0.2.0 still showed as "coming soon" is

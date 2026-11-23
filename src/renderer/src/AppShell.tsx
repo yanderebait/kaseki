@@ -21,6 +21,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { useOrb } from './orbState'
 import { useTheme } from './theme'
 import { PomodoroProvider } from './pomodoro'
+import { tourVisible, type LegalGate } from '../../shared/firstRun'
 
 export type View = { name: 'home' } | { name: 'dashboard'; spaceId: number; openTaskId?: number }
 type ViewerState = { fileId: number; bundleId?: number }
@@ -31,13 +32,17 @@ type KnowledgeState = { pageId?: number }
 // sensitive folder. Cmd+O picks a file; the Orb's items open bundles, the
 // personal wiki, and the sensitive folder; Cmd+L locks the sensitive folder.
 // `initialView` lets onboarding open straight onto the new space's dashboard;
-// `startTour` kicks off the guided tour once the dashboard is showing.
+// `startTour` kicks off the guided tour once the dashboard is showing; App only
+// raises it after the legal documents are accepted. `legal` keeps the tour
+// (including one started from the Orb) off screen while acceptance is pending.
 export default function AppShell({
   initialView = { name: 'home' },
+  legal = 'accepted',
   startTour = false,
   showTip = false
 }: {
   initialView?: View
+  legal?: LegalGate
   startTour?: boolean
   showTip?: boolean
 }): React.JSX.Element {
@@ -54,6 +59,7 @@ export default function AppShell({
   const [spaces, setSpaces] = useState<Space[]>([])
   const [homeKey, setHomeKey] = useState(0)
   const [tourOpen, setTourOpen] = useState(false)
+  const showTour = tourVisible(tourOpen, legal)
   // A search-hit event opens the edit modal right here at the shell — 0.1.0
   // routed to the space dashboard and left the user to find the event by eye
   // (and Global events routed to home with nothing at all).
@@ -76,18 +82,19 @@ export default function AppShell({
 
   // The Orb wears the tour expression while the tour runs, then returns to idle.
   useEffect(() => {
-    rest(tourOpen ? 'tour' : 'idle')
-  }, [tourOpen, rest])
+    rest(showTour ? 'tour' : 'idle')
+  }, [showTour, rest])
 
   // After onboarding settles (legal accepted, tour finished), the Orb offers the
-  // one-time settings tip from its speech bubble (Part 12).
+  // one-time settings tip from its speech bubble (Part 12). The tip is only
+  // marked shown when it actually fires, so a tour opening in the same moment
+  // cancels it and it follows once the tour closes.
   useEffect(() => {
     if (!showTip || tourOpen || tipShown.current) return
-    tipShown.current = true
-    const t = setTimeout(
-      () => say({ body: 'And we’re all set! If you ever want settings, just give me a tap.' }),
-      1200
-    )
+    const t = setTimeout(() => {
+      tipShown.current = true
+      say({ body: 'And we’re all set! If you ever want settings, just give me a tap.' })
+    }, 1200)
     return () => clearTimeout(t)
   }, [showTip, tourOpen, say])
 
@@ -259,7 +266,9 @@ export default function AppShell({
         onOpenBundles={() => setBundlesOpen(true)}
         onOpenKnowledge={() => setKnowledge({})}
         onOpenSensitive={() => setSensitiveOpen(true)}
-        onStartTour={() => setTourOpen(true)}
+        onStartTour={() => {
+          if (legal === 'accepted') setTourOpen(true)
+        }}
         onOpenSettings={setSettingsCategory}
       />
       <Suspense fallback={null}>
@@ -321,7 +330,7 @@ export default function AppShell({
           }}
         />
       )}
-      {tourOpen && <Tour onClose={() => setTourOpen(false)} />}
+      {showTour && <Tour onClose={() => setTourOpen(false)} />}
       <OrbAnnouncer />
       </PomodoroProvider>
     </ErrorBoundary>
