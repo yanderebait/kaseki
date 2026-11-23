@@ -18,7 +18,8 @@ import {
   normalizeSearchOptions,
   type SearchOptions
 } from '../../../../shared/searchOptions'
-import { UPDATE_RELEASES_URL, type UpdateStatus } from '../../../../shared/updates'
+import { UPDATE_RELEASES_URL } from '../../../../shared/updates'
+import { UpdateAction, useUpdateStatus } from '../UpdatePrompt'
 import {
   normalizeWeatherConfig,
   type WeatherConfig,
@@ -386,15 +387,11 @@ export function SearchPane(): React.JSX.Element {
   )
 }
 
-// Updates (Part 14 #11): an optional daily check against GitHub. Kaseki never
-// downloads or installs an update itself.
+// Updates (Part 14 #11): on by default since v0.3.2. Kaseki checks GitHub once
+// per launch; "Update now" downloads and installs only when clicked.
 export function UpdatesPane(): React.JSX.Element {
-  const [status, setStatus] = useState<UpdateStatus | null>(null)
+  const [status, setStatus] = useUpdateStatus()
   const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    window.kaseki.updates.status().then(setStatus)
-  }, [])
 
   async function check(): Promise<void> {
     setBusy(true)
@@ -411,21 +408,22 @@ export function UpdatesPane(): React.JSX.Element {
   if (status.error) verdict = status.error
   else if (status.updateAvailable) verdict = `Version ${status.latestVersion} is available.`
   else if (status.latestVersion) verdict = 'You have the latest version.'
+  if (status.download.state === 'error' && status.download.error) verdict = status.download.error
 
   return (
     <div className="settings-section">
       <h2 className="settings-heading">Updates</h2>
       <p className="hint">
-        Off by default. When on, Kaseki asks GitHub once a day whether a newer version exists. The
-        request carries your Kaseki version number and nothing else. Kaseki never downloads or
-        installs anything itself — it tells you, and you decide.
+        On by default. Each time Kaseki starts, once you have unlocked it, it asks GitHub whether a
+        newer version exists. The request carries your Kaseki version number and nothing else.
+        Nothing is downloaded unless you click Update now.
       </p>
       <div className="setting-row">
         <span>Installed version</span>
         <span>{status.currentVersion}</span>
       </div>
       <label className="setting-row">
-        <span>Check for updates daily</span>
+        <span>Check for updates when Kaseki starts</span>
         <input
           type="checkbox"
           checked={status.enabled}
@@ -444,16 +442,18 @@ export function UpdatesPane(): React.JSX.Element {
         >
           {busy ? 'Checking…' : 'Check now'}
         </button>
-        <button
-          type="button"
-          className="settings-btn"
-          // Opens in the OS browser via the main process's window-open handler.
-          onClick={() =>
-            window.open(status.releaseUrl ?? UPDATE_RELEASES_URL, '_blank', 'noopener')
-          }
-        >
-          {status.updateAvailable ? 'Open the release page' : 'All releases'}
-        </button>
+        {status.updateAvailable ? (
+          <UpdateAction status={status} className="settings-btn" />
+        ) : (
+          <button
+            type="button"
+            className="settings-btn"
+            // Opens in the OS browser via the main process's window-open handler.
+            onClick={() => window.open(UPDATE_RELEASES_URL, '_blank', 'noopener')}
+          >
+            All releases
+          </button>
+        )}
       </div>
     </div>
   )

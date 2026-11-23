@@ -18,6 +18,20 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # No spaces: GitHub rewrites spaces in release asset names ("Kaseki Setup
+  # 0.3.0.exe" became "Kaseki.Setup.0.3.0.exe"), which would no longer match
+  # the file name recorded in latest.yml and break the in-app updater.
+  artifactName: Kaseki-Setup-${version}.${ext}
+
+# Where the in-app updater (electron-updater) looks for releases. With this
+# block the build writes latest.yml (version, installer name, sha512) next to
+# the installer and bakes app-update.yml into the app. Nothing is uploaded by
+# electron-builder itself: release.yml builds with --publish never and
+# attaches the files to the GitHub release.
+publish:
+  provider: github
+  owner: yanderebait
+  repo: kaseki
 
 linux:
   target:

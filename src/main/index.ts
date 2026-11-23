@@ -19,6 +19,7 @@ import { log, pruneOldLogs } from './logger'
 import { appVersion } from './version'
 import { installCrashHandlers } from './crashReport'
 import { startBackgroundTasks, stopBackgroundTasks } from './background'
+import { runLaunchUpdateCheck } from './updates'
 
 // Must run before app ready.
 registerFileScheme()
@@ -102,6 +103,9 @@ if (!gotLock) {
     devBootstrap()
     createWindow()
     startBackgroundTasks()
+    // Only does anything if the dev bootstrap already unlocked the database;
+    // otherwise the check runs from the auth:unlock handler.
+    runLaunchUpdateCheck()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

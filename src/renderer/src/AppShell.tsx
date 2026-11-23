@@ -21,7 +21,8 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { useOrb } from './orbState'
 import { useTheme } from './theme'
 import { PomodoroProvider } from './pomodoro'
-import { tourVisible, type LegalGate } from '../../shared/firstRun'
+import { tourVisible, updatePromptVisible, type LegalGate } from '../../shared/firstRun'
+import UpdatePrompt, { useUpdateStatus, wasUpdatePromptDismissed } from './components/UpdatePrompt'
 
 export type View = { name: 'home' } | { name: 'dashboard'; spaceId: number; openTaskId?: number }
 type ViewerState = { fileId: number; bundleId?: number }
@@ -59,7 +60,20 @@ export default function AppShell({
   const [spaces, setSpaces] = useState<Space[]>([])
   const [homeKey, setHomeKey] = useState(0)
   const [tourOpen, setTourOpen] = useState(false)
+  // Whether a tour requested at the end of onboarding has opened yet: between
+  // legal acceptance and the effect below there is a render where startTour is
+  // true but tourOpen is not, and the update prompt must not slip in there.
+  const [tourStarted, setTourStarted] = useState(false)
   const showTour = tourVisible(tourOpen, legal)
+  const [update] = useUpdateStatus()
+  const [updateDismissed, setUpdateDismissed] = useState(wasUpdatePromptDismissed)
+  const showUpdatePrompt = updatePromptVisible({
+    legal,
+    tourPending: startTour && !tourStarted,
+    tourOpen,
+    dismissed: updateDismissed,
+    update
+  })
   // A search-hit event opens the edit modal right here at the shell — 0.1.0
   // routed to the space dashboard and left the user to find the event by eye
   // (and Global events routed to home with nothing at all).
@@ -77,7 +91,10 @@ export default function AppShell({
   }, [homeKey])
 
   useEffect(() => {
-    if (startTour) setTourOpen(true)
+    if (startTour) {
+      setTourOpen(true)
+      setTourStarted(true)
+    }
   }, [startTour])
 
   // The Orb wears the tour expression while the tour runs, then returns to idle.
@@ -331,6 +348,9 @@ export default function AppShell({
         />
       )}
       {showTour && <Tour onClose={() => setTourOpen(false)} />}
+      {showUpdatePrompt && update && (
+        <UpdatePrompt status={update} onDismiss={() => setUpdateDismissed(true)} />
+      )}
       <OrbAnnouncer />
       </PomodoroProvider>
     </ErrorBoundary>

@@ -73,7 +73,14 @@ import { createLink, deleteLink, linkCandidates, listBacklinks, listOutgoing } f
 import { globalSearch } from './db/search'
 import { listUpcoming } from './db/upcoming'
 import { clearWeatherCache, getWeather, searchPlaces } from './weather'
-import { checkForUpdate, setUpdateCheckEnabled, updateStatus } from './updates'
+import {
+  checkForUpdate,
+  downloadUpdate,
+  installUpdate,
+  runLaunchUpdateCheck,
+  setUpdateCheckEnabled,
+  updateStatus
+} from './updates'
 import {
   backupConfig,
   backupNow,
@@ -211,6 +218,7 @@ export function registerIpcHandlers(): void {
     }
     try {
       createDatabase(password, name.trim())
+      runLaunchUpdateCheck()
       return { ok: true }
     } catch (error) {
       log.error('Database creation failed', error)
@@ -225,9 +233,11 @@ export function registerIpcHandlers(): void {
       return { ok: false, error: 'Password must not be empty.' }
     }
     try {
-      return unlockDatabase(password)
-        ? { ok: true }
-        : { ok: false, error: 'Wrong password.' }
+      if (!unlockDatabase(password)) return { ok: false, error: 'Wrong password.' }
+      // The update preference lives in the encrypted database, so the
+      // once-per-launch check can only run now.
+      runLaunchUpdateCheck()
+      return { ok: true }
     } catch (error) {
       log.error('Unlock failed', error)
       return { ok: false, error: 'Could not open the database. See logs for details.' }
@@ -848,6 +858,8 @@ export function registerIpcHandlers(): void {
     setUpdateCheckEnabled(enabled === true)
   )
   ipcMain.handle('updates:check', (): Promise<UpdateStatus> => checkForUpdate())
+  ipcMain.handle('updates:download', (): UpdateStatus => downloadUpdate())
+  ipcMain.handle('updates:install', (): void => installUpdate())
 
   ipcMain.handle('backup:config', (): BackupConfig => backupConfig())
   ipcMain.handle('backup:now', (): Promise<BackupResult> => backupNow())

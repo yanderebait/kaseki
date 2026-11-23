@@ -286,7 +286,19 @@ const api = {
     status: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:status'),
     setEnabled: (enabled: boolean): Promise<UpdateStatus> =>
       ipcRenderer.invoke('updates:setEnabled', enabled),
-    check: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:check')
+    check: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:check'),
+    // "Update now": starts the in-app download (packaged Windows builds only);
+    // progress arrives through onChanged.
+    download: (): Promise<UpdateStatus> => ipcRenderer.invoke('updates:download'),
+    // "Restart to update": quits and runs the verified installer.
+    install: (): Promise<void> => ipcRenderer.invoke('updates:install'),
+    // Fires when a check finishes, the toggle changes, or download progress
+    // moves. Returns an unsubscribe function.
+    onChanged: (callback: (status: UpdateStatus) => void): (() => void) => {
+      const listener = (_event: unknown, status: UpdateStatus): void => callback(status)
+      ipcRenderer.on('updates:changed', listener)
+      return () => ipcRenderer.removeListener('updates:changed', listener)
+    }
   },
   backup: {
     config: (): Promise<BackupConfig> => ipcRenderer.invoke('backup:config'),

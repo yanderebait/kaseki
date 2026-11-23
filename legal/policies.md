@@ -237,9 +237,9 @@ It enters a ten-second undo window, and then it is gone. There is no archive. Th
 
 ## What about the optional network features?
 
-Three. All off by default. All disablable.
+Three. Two are off by default. The update check is on by default. All disablable.
 
-The update check, when on, asks GitHub once a day whether a newer version of Kaseki exists; the request contains your version number and nothing else. The weather widget, if you place one on your dashboard, asks a weather provider for the forecast at the location you have configured — a city name or coordinates, no more — which means that an organisation in the United States now knows that somebody in your general area would like to know whether to bring a coat, and is welcome to do with that information whatever they like. The crash reporter, if you opt in, sends a stack trace when Kaseki crashes — function names, line numbers, the kind of cryptic technical incantation that means something to me and nothing to you, with no tasks or notes or files attached.
+The update check, unless you switch it off, asks GitHub once each time you start Kaseki whether a newer version exists; the request contains your version number and nothing else. If there is one, Kaseki asks you first, and downloads it from GitHub only if you say yes. The weather widget, if you place one on your dashboard, asks a weather provider for the forecast at the location you have configured — a city name or coordinates, no more — which means that an organisation in Switzerland now knows that somebody in your general area would like to know whether to bring a coat, and is welcome to do with that information whatever they like. The crash reporter, if you opt in, sends a stack trace when Kaseki crashes — function names, line numbers, the kind of cryptic technical incantation that means something to me and nothing to you, with no tasks or notes or files attached.
 
 If all three are off, Kaseki makes zero network connections, ever, and you can verify this with any network monitor, which I encourage you to do — not because I am lying, but because you should not take anyone's word on this, including mine, and certainly including the word of the rather larger companies on whose word you have, until now, been content to rely.
 
@@ -277,11 +277,11 @@ It might. If it does, the new version ships in the next release. If a future ver
 
 ## 3. Data collected by the Author
 
-3.1 In the ordinary operation of the Software, no data is transmitted from the User's installation of the Software to the Author or to any third party.
+3.1 In the ordinary operation of the Software, no data is transmitted from the User's installation of the Software to the Author, or to any third party except as described in clause 3.2.
 
-3.2 The Software contains three optional features that, if enabled by the User, transmit limited data to specified third parties. These features are disabled by default. The features are:
+3.2 The Software contains three optional features that, while enabled, transmit limited data to specified third parties. The update check is enabled by default; the other two are disabled by default. The features are:
 
-(a) **Update check.** If enabled, the Software queries GitHub, Inc. ("GitHub") at most once per day to determine whether a newer version of the Software is available. The request consists of (i) the User's then-current version of the Software, and (ii) the standard HTTP metadata necessary for the request to be served (including User-Agent string and IP address). No User Data is transmitted. GitHub processes the request in accordance with its privacy practices, available at https://docs.github.com/en/site-policy/privacy-policies/.
+(a) **Update check.** Unless disabled by the User, the Software queries GitHub, Inc. ("GitHub") once on each launch of the Software, after the User unlocks it, to determine whether a newer version of the Software is available. The request consists of (i) the User's then-current version of the Software, and (ii) the standard HTTP metadata necessary for the request to be served (including User-Agent string and IP address). No User Data is transmitted. If a newer version is available and the User elects to install it, the Software downloads the installer from GitHub; the download request carries the same data and no more. GitHub processes these requests in accordance with its privacy practices, available at https://docs.github.com/en/site-policy/privacy-policies/.
 
 (b) **Weather widget.** If the User adds the Weather widget to the home screen and configures a location, the Software queries Open-Meteo (a third-party weather data service; further information at https://open-meteo.com) for the current weather and short-term forecast at that location. The request consists of (i) the configured location (as a city name or coordinates), (ii) the User's preferred units, and (iii) standard HTTP metadata. No User Data is transmitted.
 

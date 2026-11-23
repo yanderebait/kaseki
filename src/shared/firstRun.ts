@@ -47,3 +47,28 @@ export function firstRunOverlays(input: FirstRunInput): FirstRunOverlays {
 export function tourVisible(tourOpen: boolean, legal: LegalGate): boolean {
   return tourOpen && legal === 'accepted'
 }
+
+export interface UpdatePromptInput {
+  legal: LegalGate
+  /** The tour was requested at the end of onboarding but has not opened yet. */
+  tourPending: boolean
+  /** The guided tour is on screen. */
+  tourOpen: boolean
+  /** "Later" was clicked during this launch. */
+  dismissed: boolean
+  /** The latest known update status, or null before the first answer. */
+  update: { enabled: boolean; updateAvailable: boolean } | null
+}
+
+/**
+ * The "Kaseki x.y.z is available" prompt (v0.3.2) is the last thing in the
+ * first-run order: it lives in the app shell, so it can never cover
+ * onboarding, and it waits until the legal documents are accepted and the
+ * guided tour (including one about to open) is over.
+ */
+export function updatePromptVisible(input: UpdatePromptInput): boolean {
+  if (!input.update || !input.update.enabled || !input.update.updateAvailable) return false
+  if (input.dismissed) return false
+  if (input.legal !== 'accepted') return false
+  return !input.tourPending && !input.tourOpen
+}

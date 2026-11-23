@@ -8,7 +8,7 @@ It holds your tasks, calendars, notes, documents, and the sensitive files you do
 
 Every piece of software you rent treats you as a number on a churn report. Not a person — a unit. A line item that either keeps paying or gets a retention email. They moved your daily feature behind "Pro+" and called it progress. They raised your price and called it value. They harvested your behaviour, sold it, and made you click "I Agree" to a forty-page EULA written by lawyers whose entire job was to make sure you can never fight back. You owned nothing. You consented to everything. That was the deal, and the deal was rigged.
 
-Kaseki is the opposite deal. You own it. You can read every line of what it does. It cannot spy on you, cannot upsell you, cannot phone home, cannot be acquired and ruined, cannot change the terms while you sleep — because it has no terms beyond "it's yours now, do what you want."
+Kaseki is the opposite deal. You own it. You can read every line of what it does. It cannot spy on you, cannot upsell you, cannot phone home with anything but its own version number, cannot be acquired and ruined, cannot change the terms while you sleep — because it has no terms beyond "it's yours now, do what you want."
 
 ## Make your own things
 

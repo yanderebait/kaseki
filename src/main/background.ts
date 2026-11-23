@@ -1,16 +1,15 @@
 import { getAuthStatus } from './db/connection'
 import { notificationTick } from './notifications'
 import { runScheduledBackup } from './backup'
-import { checkForUpdateIfDue } from './updates'
 import { log } from './logger'
 
 // The app's one background timer (v0.3.0). Once a minute, while the database
 // is unlocked, it gives each scheduled feature a chance to run: event
-// reminders and the daily summary, a scheduled backup, and the daily update
-// check. Every one of those is off until the user turns it on, and each
-// decides for itself whether anything is due — so with everything off, a tick
-// reads three preferences and does nothing else. Nothing here touches the
-// network unless the update check is enabled.
+// reminders and the daily summary, and a scheduled backup. Both are off until
+// the user turns them on, and each decides for itself whether anything is due
+// — so with both off, a tick reads two preferences and does nothing else.
+// Nothing here touches the network. (The update check ran here daily through
+// 0.3.1; since 0.3.2 it runs once per launch, after unlock — see updates.ts.)
 
 const TICK_MS = 60 * 1000
 
@@ -24,7 +23,6 @@ export function backgroundTick(now: Date = new Date()): void {
   } catch (error) {
     log.error('Scheduled backup failed', error)
   }
-  void checkForUpdateIfDue(now).catch((error) => log.warn('Update check failed', String(error)))
 }
 
 export function startBackgroundTasks(): void {

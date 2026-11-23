@@ -1,13 +1,13 @@
 # Kaseki — Self-Hosting Guide
 
-Kaseki is built to be *yours*. It runs entirely on your machine, stores everything in one folder, and talks to no external service unless you switch one of its three optional network features on. This guide covers installing it, where your data lives, backing it up, and the privacy and encryption details.
+Kaseki is built to be *yours*. It runs entirely on your machine, stores everything in one folder, and talks to no external service unless one of its three optional network features is on — and only one of them, the update check, which asks GitHub once per launch whether a newer version exists, is on by default. This guide covers installing it, where your data lives, backing it up, and the privacy and encryption details.
 
 ## What "self-hosted" means here
 
-- **No accounts, no cloud, no sync.** Kaseki never phones home. It does not sync to Google, Dropbox, Outlook, or anything else.
-- **No telemetry, and nothing outbound by default.** Kaseki has exactly three optional network features, and all three are **off** until you turn them on:
+- **No accounts, no cloud, no sync.** Kaseki never phones home with anything but its version number. It does not sync to Google, Dropbox, Outlook, or anything else.
+- **No telemetry.** Kaseki has exactly three optional network features. The update check is **on** by default and can be switched off; the other two are **off** until you turn them on:
   - **Crash reporting** — sanitised error reports to *your own* Sentry instance (see below).
-  - **Update check** — once a day, asks GitHub whether a newer release exists (see [Updates](#updates)).
+  - **Update check** — once per launch, after you unlock, asks GitHub whether a newer release exists (see [Updates](#updates)).
   - **Weather widget** — asks Open-Meteo for the forecast at a place you choose (see [Weather widget](#weather-widget-optional)).
 
   With all three off, Kaseki makes no network requests at all.
@@ -94,7 +94,7 @@ Off by default, and not on the home screen until you add it. In **Settings → W
 
 ## Updates
 
-Kaseki never downloads or installs updates itself. **Settings → Updates** has an optional **daily update check**, off by default: when on, Kaseki asks GitHub's public releases API (`api.github.com/repos/yanderebait/kaseki/releases/latest`) at most once a day whether a newer version exists. The request carries a `kaseki/<version>` User-Agent and nothing else. If there is a newer release, the pane says so and links to its release page; **Check now** runs the same check on demand.
+The **update check** is on by default and can be switched off in **Settings → Updates**. Once per launch, right after you unlock, Kaseki asks GitHub's public releases API (`api.github.com/repos/yanderebait/kaseki/releases/latest`) whether a newer version exists. The request carries a `kaseki/<version>` User-Agent and nothing else — nothing from your database. If there is a newer release, a small prompt offers **Update now** or **Later** (after onboarding, the legal documents, and the tour). Nothing is downloaded until you click **Update now**: on the Windows installer build, Kaseki then downloads the new installer from the GitHub release, checks it against the SHA-512 hash in the release's `latest.yml`, and offers **Restart to update**, which quits and installs. On a source build or any other platform the button opens the release page instead. **Later** hides the prompt until the next launch. **Settings → Updates** shows the same status, **Check now**, and the same Update button.
 
 To update, install the new version (or pull and rebuild from source). Your data directory is untouched by an update; if a release changes the database, its migration runs on first launch. Making a backup first is cheap insurance.
 

@@ -94,9 +94,10 @@ import {
   UPDATE_RELEASES_URL,
   isNewerVersion,
   parseVersion,
-  updateCheckDue
+  updateCheckEnabled,
+  launchCheckDue
 } from '../shared/updates'
-import { checkForUpdate, parseLatestRelease } from './updates'
+import { checkForUpdate, parseLatestRelease, setUpdateCheckEnabled, updateStatus } from './updates'
 import {
   DEFAULT_NOTIFICATIONS,
   digestBody,
@@ -203,7 +204,7 @@ import { computeAmount, computeWindowAmount, resolveBilling } from '../shared/bi
 import { PRESETS, UNIVERSAL_STATUSES, getPreset, presetToSpace, searchPresets } from '../shared/presets'
 import { LEGAL_DOCUMENTS, LEGAL_VERSION, legalAcceptanceStatus, recordLegalAcceptance } from './legal'
 import { LEGAL_TITLES } from '../shared/legal'
-import { firstRunOverlays, legalGate, tourVisible } from '../shared/firstRun'
+import { firstRunOverlays, legalGate, tourVisible, updatePromptVisible } from '../shared/firstRun'
 
 function readFileExists(path: string): boolean {
   try {
@@ -1281,20 +1282,24 @@ export async function runSelfTest(): Promise<number> {
     check('isNewerVersion compares numerically', isNewerVersion('0.10.0', '0.9.9') && isNewerVersion('v1.0.0', '0.3.0'))
     check('isNewerVersion: equal or older is not newer', !isNewerVersion('0.3.0', '0.3.0') && !isNewerVersion('v0.2.9', '0.3.0'))
     check('isNewerVersion: unparseable is never newer', !isNewerVersion('dev', '0.1.0') && !isNewerVersion('9.9.9', 'dev'))
-    const nowU = new Date('2026-11-23T12:00:00Z')
-    check('updateCheckDue: never while disabled', !updateCheckDue(false, null, nowU))
-    check('updateCheckDue: due when never checked', updateCheckDue(true, null, nowU))
-    check('updateCheckDue: not due within a day', !updateCheckDue(true, '2026-11-23T01:00:00Z', nowU))
-    check('updateCheckDue: due after a day', updateCheckDue(true, '2026-11-22T11:00:00Z', nowU))
-    check('updateCheckDue: a future or corrupt timestamp counts as due', updateCheckDue(true, '2027-01-01T00:00:00Z', nowU) && updateCheckDue(true, 'garbage', nowU))
+    check('updateCheckEnabled: unset or malformed means on', updateCheckEnabled(undefined) && updateCheckEnabled(null) && updateCheckEnabled('x') && updateCheckEnabled({}) && updateCheckEnabled({ latestVersion: '0.3.0' }))
+    check('updateCheckEnabled: only an explicit false is off', !updateCheckEnabled({ enabled: false }) && updateCheckEnabled({ enabled: true }) && updateCheckEnabled({ enabled: 'false' }) && updateCheckEnabled({ enabled: 0 }))
+    check('launchCheckDue: once, after unlock, while on', launchCheckDue({ unlocked: true, enabled: true, alreadyRan: false }))
+    check('launchCheckDue: never twice in one launch', !launchCheckDue({ unlocked: true, enabled: true, alreadyRan: true }))
+    check('launchCheckDue: never while locked or switched off', !launchCheckDue({ unlocked: false, enabled: true, alreadyRan: false }) && !launchCheckDue({ unlocked: true, enabled: false, alreadyRan: false }))
+    check('update status: a fresh database reports the check as on', getPreferences().updates === undefined && updateStatus().enabled)
     const rel = parseLatestRelease({ tag_name: 'v0.4.0', html_url: `${UPDATE_RELEASES_URL}/tag/v0.4.0` })
     check('parseLatestRelease reads the tag and keeps the project URL', rel?.version === '0.4.0' && rel?.url === `${UPDATE_RELEASES_URL}/tag/v0.4.0`)
     check('parseLatestRelease rejects a foreign URL', parseLatestRelease({ tag_name: 'v9.0.0', html_url: 'https://evil.example/kaseki' })?.url === UPDATE_RELEASES_URL)
     check('parseLatestRelease rejects a look-alike host', parseLatestRelease({ tag_name: 'v9.0.0', html_url: 'https://github.com.evil.example/yanderebait/kaseki/releases/x' })?.url === UPDATE_RELEASES_URL)
     check('parseLatestRelease rejects a path that escapes the project', parseLatestRelease({ tag_name: 'v9.0.0', html_url: `${UPDATE_RELEASES_URL}/../../../other/repo` })?.url === UPDATE_RELEASES_URL)
     check('parseLatestRelease needs a tag', parseLatestRelease({ html_url: UPDATE_RELEASES_URL }) === null && parseLatestRelease('x') === null)
+    // Switched off explicitly first, so the suite never reaches the network.
+    const off = setUpdateCheckEnabled(false)
+    check('switching the check off is stored as an explicit false', !off.enabled && (getPreferences().updates as { enabled?: unknown }).enabled === false)
     const upd = await checkForUpdate()
-    check('checkForUpdate is a no-op while disabled', !upd.enabled && upd.checkedAt === null && upd.latestVersion === null && getPreferences().updates === undefined)
+    check('checkForUpdate is a no-op while disabled', !upd.enabled && upd.checkedAt === null && upd.latestVersion === null)
+    check('update status: nothing is downloading before the user asks', upd.download.state === 'idle' && upd.download.percent === 0)
 
     // Notifications
     const nowN = new Date('2030-01-15T12:00:00Z')
@@ -1541,6 +1546,24 @@ export async function runSelfTest(): Promise<number> {
       'an open tour stays hidden until legal is accepted',
       !tourVisible(true, 'checking') && !tourVisible(true, 'required') && tourVisible(true, 'accepted') &&
         !tourVisible(false, 'accepted')
+    )
+    const avail = { enabled: true, updateAvailable: true }
+    const settled = { legal: 'accepted' as const, tourPending: false, tourOpen: false, dismissed: false, update: avail }
+    check('update prompt: shows once everything first-run is settled', updatePromptVisible(settled))
+    check(
+      'update prompt: never over the legal modal or while its status is unknown',
+      !updatePromptVisible({ ...settled, legal: 'required' }) && !updatePromptVisible({ ...settled, legal: 'checking' })
+    )
+    check(
+      'update prompt: waits for the guided tour, including one about to open',
+      !updatePromptVisible({ ...settled, tourOpen: true }) && !updatePromptVisible({ ...settled, tourPending: true })
+    )
+    check('update prompt: Later hides it', !updatePromptVisible({ ...settled, dismissed: true }))
+    check(
+      'update prompt: nothing to show without a newer version, an answer, or with the check off',
+      !updatePromptVisible({ ...settled, update: { enabled: true, updateAvailable: false } }) &&
+        !updatePromptVisible({ ...settled, update: null }) &&
+        !updatePromptVisible({ ...settled, update: { enabled: false, updateAvailable: true } })
     )
     // Models migration 005's backfill: a populated users table (a returning
     // user) gets stamped, so they are never pushed back through onboarding.

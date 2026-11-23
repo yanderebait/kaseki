@@ -1,6 +1,6 @@
 {
   "name": "kaseki",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "A self-hosted, single-user personal life dashboard",
   "author": "yanderebait",
   "license": "AGPL-3.0",
@@ -24,6 +24,7 @@
     "@tiptap/starter-kit": "^3.26.1",
     "better-sqlite3-multiple-ciphers": "^12.10.0",
     "dompurify": "^3.4.10",
+    "electron-updater": "^6.8.11",
     "marked": "^18.0.5",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.0.227",

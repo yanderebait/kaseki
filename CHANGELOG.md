@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.2
+
+Updates from inside the app. Self-test suite: 417 to 425 checks.
+
+- **The update check is now on by default.** This is a change of default:
+  through 0.3.1 it was off unless you turned it on. If you switched it off
+  yourself, it stays off. It now runs once each time you start Kaseki, right
+  after you unlock, instead of once a day, and it can be switched off in
+  **Settings → Updates**. The request goes to GitHub only and carries your
+  Kaseki version and nothing else.
+- **Update now.** When a newer version exists, a small prompt says so, after
+  onboarding, the legal documents and the tour, never on top of them.
+  **Update now** downloads the installer inside the app with a progress bar,
+  checks it against the hash published with the release, and offers
+  **Restart to update**. Nothing is downloaded until you click. **Later**
+  hides the prompt until the next launch. On a source build, or anywhere but
+  the Windows installer, the button opens the release page instead.
+- **The Privacy Policy changed to match**, so you will be asked to accept the
+  legal documents once more on your first launch of 0.3.2. It also no longer
+  says the weather provider, Open-Meteo, is in the United States; it is in
+  Switzerland.
+- The Windows installer is now named `Kaseki-Setup-<version>.exe`, and each
+  release carries `latest.yml` and a `.blockmap` for the updater.
+
 ## 0.3.1
 
 A first-run fix. Self-test suite: 409 to 417 checks.

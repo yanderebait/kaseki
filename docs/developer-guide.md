@@ -79,6 +79,7 @@ Gated behind `!app.isPackaged`, several environment variables make the app launc
 - `KASEKI_DEV_ONBOARD=1` — leave the database unmarked so onboarding runs.
 - `KASEKI_DEV_SHOT=<path>` / `KASEKI_DEV_SHOT_DELAY=<ms>` — capture a screenshot via `webContents.capturePage` (occlusion-immune under Wayland) and exit.
 - `KASEKI_SELFTEST=1` — run the self-test suite and exit.
+- `KASEKI_DEV_UPDATE=<version>` — the update check reports that version as the latest without any request; add `KASEKI_DEV_UPDATE_MODE=install` to fake the in-app download (progress, then "Restart to update", which only logs). Run with `npm_package_version` set (e.g. `0.3.2`), or a dev build's version is `dev` and nothing counts as newer.
 - `KASEKI_DATA_DIR=<path>` — point the data directory anywhere (used by the seams above).
 
 ## Adding a feature
