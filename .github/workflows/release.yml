@@ -1,0 +1,91 @@
+# Builds the Windows installer. On a version tag (v*) it also publishes
+# the GitHub release; a manual run only builds and keeps the installer
+# as a downloadable workflow artifact.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    # Needed so the job can create the release and upload the installer.
+    permissions:
+      contents: write
+    defaults:
+      run:
+        # Use bash for every step so the scripts below behave like on Linux.
+        shell: bash
+    steps:
+      # Get the code at the commit or tag that triggered this run.
+      - uses: actions/checkout@v4
+
+      # Install Node 22 and reuse the npm download cache between runs.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # On a tag, stop early if the tag and package.json disagree
+      # (e.g. tag v0.3.0 but package.json still says 0.2.9).
+      - name: Check tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${version}" >&2
+            exit 1
+          fi
+
+      # npm runs package scripts with cmd.exe on Windows, but the postinstall
+      # script (rebuild:native) uses bash syntax. Point npm at Git Bash.
+      - name: Make npm run scripts with Git Bash
+        run: npm config set script-shell "C:\\Program Files\\Git\\bin\\bash.exe"
+
+      # Clean install of the exact locked dependencies. This also fetches the
+      # prebuilt Windows SQLite binary for Electron via postinstall.
+      - name: Install dependencies
+        run: npm ci
+
+      # Build the app and the NSIS installer. --publish never stops
+      # electron-builder from trying to upload anything itself.
+      - name: Build Windows installer
+        run: npm run package:win -- --publish never
+
+      # Keep the installer as a downloadable artifact on every run.
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaseki-windows-installer
+          path: dist/*.exe
+          if-no-files-found: error
+
+      # On a tag only: pull this version's section out of CHANGELOG.md
+      # (from its "## x.y.z" heading up to the next "## " heading).
+      - name: Extract release notes from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(node -p "require('./package.json').version")
+          awk -v v="$version" '
+            /^## / { if (found) exit; if ($2 == v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No '## ${version}' section found in CHANGELOG.md" >&2
+            exit 1
+          fi
+
+      # On a tag only: create the GitHub release with the installer attached.
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          gh release create "${GITHUB_REF_NAME}" dist/*.exe \
+            --title "Kaseki ${version}" \
+            --notes-file release-notes.md \
+            --verify-tag
